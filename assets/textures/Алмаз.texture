@@ -1,0 +1,7 @@
+aaaba
+aabba
+abbba
+bbbba
+aaaaa
+a = fixed(0)
+b = fixed(+20)

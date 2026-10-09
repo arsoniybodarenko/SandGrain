@@ -1,0 +1,15 @@
+aaaaaaaaab
+abbbbbbbbc
+abbbbbbbbc
+abbbbbbbbc
+abbbbbbbbc
+abbbbbbbbc
+abbbbbbbbc
+abbbbbbbbc
+abbbbbbbbc
+bccccccccc
+
+a = fixed(+10)
+b = fixed(+0)
+c = fixed(-10)
+

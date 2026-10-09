@@ -1,0 +1,13 @@
+aaaaaa
+bbbbbb
+cccccc
+dddddd
+eeeeee
+ffffff
+
+a = fixed(0)
+b = fixed(5)
+c = fixed(10)
+d = fixed(15)
+e = fixed(20)
+f = fixed(25)

@@ -1,0 +1,7 @@
+baba
+abab
+baba
+abab
+
+b = fixed(random(0, ((+20, +20, +10))))
+a = fixed(0)

@@ -1,0 +1,7 @@
+baba
+aaab
+baaa
+abab
+
+a = fixed(random(-10,-10,0))
+b = fixed(0)

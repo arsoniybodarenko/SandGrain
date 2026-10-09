@@ -1,0 +1,6 @@
+acccabba
+bacbbcab
+abbaccac
+a = fixed(0)
+b = fixed(random(0,+20))
+c = fixed(random(-10,0))

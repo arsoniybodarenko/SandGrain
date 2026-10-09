@@ -1,0 +1,11 @@
+bbbdbb
+cdccca
+bbbbad
+dccccc
+bbbbdb
+cdcacc
+
+a=fixed(+0)
+b=random(+0,+5)
+c=random(-5,+0)
+d=random(-5,+5)

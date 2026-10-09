@@ -1,0 +1,15 @@
+bbcddbabbb
+abbcccbbcb
+bbccbbcddc
+cddbabbccb
+bbccbbccdb
+babcdcbbdc
+cbcdcbbccc
+ddccdccbbc
+cbbcddbbab
+babbcdcbbc
+
+a = +(55, 62, 70)
+b = +(50, 50, 50)
+c = +(37, 37, 37)
+d = +(25, 25, 25)

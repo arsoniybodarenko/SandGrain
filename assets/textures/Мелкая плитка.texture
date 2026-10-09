@@ -1,0 +1,10 @@
+aaaab
+abbbc
+abbbc
+abbbc
+bcccc
+
+a = fixed(+10)
+b = fixed(+0)
+c = fixed(-10)
+

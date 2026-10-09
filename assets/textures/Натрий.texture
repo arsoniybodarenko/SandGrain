@@ -1,0 +1,14 @@
+eaaaaeaa
+cccccccd
+bbbbbbbb
+aaaaadaa
+cdcccccc
+bbbbbbeb
+aadaaaaa
+bbebbbeb
+
+a=fixed(+0)
+b=fixed(-20)
+c=fixed(+20)
+d=fixed(random(0,+10))
+e=fixed(random(-10,0))

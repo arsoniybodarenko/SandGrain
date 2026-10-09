@@ -1,0 +1,19 @@
+bccbbccccb
+ddddccddcc
+dfffdeefdd
+ddfdeeddfd
+ccddddddcc
+cccddccbbb
+bcccccbaab
+aagbbaagga
+agggagaaga
+aabbagbbaa
+
+a=additional(90, 55, 45)
+b=additional(100, 70, 50)
+c=fixed(0)
+d=additional(150, 100, 75)
+e=additional(165, 120, 95)
+f=random(d, e)
+g=random(a, b)
+

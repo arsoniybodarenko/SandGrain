@@ -1,0 +1,20 @@
+ccccccfffa
+fhhiiiaaad
+fhiiihaaid
+fiiiaaaiid
+fiiahaiiig
+fiaaaiiiag
+faaaiiiahg
+bhaiiiahhg
+baiiiahhhg
+dgggeegeee
+
+a=fixed(0)
+b=fixed(+10)
+c=fixed(+20)
+d=fixed(-10)
+e=fixed(-20)
+f=fixed(random(+10,+20))
+g=fixed(random(-10,-20))
+h=for_tile(fixed(random(-5, 0)))
+i=for_tile(fixed(random(0, +5)))

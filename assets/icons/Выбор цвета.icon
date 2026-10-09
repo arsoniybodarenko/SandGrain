@@ -1,0 +1,23 @@
+aaaaaaaaaa
+abbbbbbbba
+abbbbbbbba
+abbbbclbba
+abcjbledba
+abjgchddba
+abcjifkdba
+abbcdkdbba
+abbbbbbbba
+aaaaaaaaaa
+
+a=(60, 60, 80)
+b=(100, 220, 250)
+c=(150, 100, 75)
+d=(100,70,50)
+e=(255,0,0)
+f=(0,255,0)
+g=(0,0,255)
+h=(150,125,0)
+i=(55,100,115)
+j=(115,75,135)
+k=(75,115,50)
+l=(175,75,50)

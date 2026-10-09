@@ -1,0 +1,13 @@
+addaaaaa
+daaaadda
+acaaccad
+aaddaaaa
+daaaaaca
+addaaaad
+aaccadda
+aaaaaaad
+
+a=fixed(+0)
+b=fixed(-10)
+c=fixed(+10)
+d=fixed(random(-10,+10))

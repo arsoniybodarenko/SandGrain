@@ -1,0 +1,15 @@
+bbbbbbbbba
+bbbbbbbbac
+bbaaaaaacc
+bbaaaaaacc
+bbaaaaaacc
+bbaaaaaacc
+bbaaaaaacc
+bbaaaaaacc
+bacccccccc
+accccccccc
+
+
+a=fixed(0)
+b=fixed(+10)
+c=fixed(-20)

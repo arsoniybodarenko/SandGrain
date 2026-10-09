@@ -1,0 +1,13 @@
+abbbadaa
+adaadaaa
+acccccad
+bbadabbb
+acccaacd
+bbbaaabb
+aaaaadaa
+ccdccccc
+
+a=fixed(+0)
+b=fixed(-20)
+c=fixed(+20)
+d=random(0,+20)

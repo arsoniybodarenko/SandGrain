@@ -1,0 +1,10 @@
+aabbac
+accaac
+baabaa
+acaaca
+aaaabb
+abbaac
+
+a=fixed(0)
+b=fixed(+10)
+c=fixed(random(-10,+10))

@@ -1,0 +1,16 @@
+aaaaaaaaaa
+abbbebbbba
+abbbbebbba
+abbedbebba
+abbbedbbba
+abbedcebba
+abbdcdbbba
+abbcccdbba
+abbbcdbbba
+aaaaaaaaaa
+
+a=(60, 60, 80)
+b=(100, 220, 250)
+c=(250, 230, 10)
+d=(230, 170, 60)
+e=(220, 100, 10)

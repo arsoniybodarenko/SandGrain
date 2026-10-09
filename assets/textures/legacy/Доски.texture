@@ -1,0 +1,9 @@
+aabbbbbbbbaa
+cccaaacccccc
+bbbbbbbbaaba
+acccccccccaa
+bbaaabbbbbbb
+
+a=fixed(0)
+b=random(for_tile(fixed(random(0, +10))),fixed(random(0,+10)))
+c=random(for_tile(fixed(random(-10, 0))),fixed(random(-10,0)))
