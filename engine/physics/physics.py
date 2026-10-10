@@ -7,7 +7,9 @@ from concurrent.futures import ThreadPoolExecutor
 physics_rotation = 0.0
 
 _tick = 0
+
 _GLOBAL_TYPES = frozenset(("Песок", "Твёрдый песок", "Мокрый песок"))
+
 _flags_cache = {}
 
 
@@ -15,14 +17,38 @@ def _material_flags(mat):
     flags = _flags_cache.get(mat)
     if flags is None:
         has_phase = (
-                mat.freezing_point is not None
-                or mat.boiling_point is not None
-                or mat.melting_point is not None
+            mat.freezing_point is not None
+            or mat.boiling_point is not None
+            or mat.melting_point is not None
         )
         flags = (has_phase, bool(mat.reacts_with), bool(mat.flammable))
         _flags_cache[mat] = flags
     return flags
 
+def _free(grid, W, H, x, y):
+    if x < 0 or x >= W or y < 0 or y >= H:
+        return False
+    t = grid[y][x]
+    if t is None:
+        return True
+    m = t.material
+    return m is None or m.physics_type[0] == 2
+
+
+def _is_none(grid, W, H, x, y):
+    return 0 <= x < W and 0 <= y < H and grid[y][x] is None
+
+
+def _cell(grid, W, H, x, y):
+    if x < 0 or x >= W or y < 0 or y >= H:
+        return None
+    return grid[y][x]
+
+
+def _keep_awake(world, x, y):
+    awake = world.chunk_awake
+    for i in world.wake_targets[y][x]:
+        awake[i] = AWAKE_TICKS
 
 def update_physics(world, x, y):
     particle = world.grid[y][x]
@@ -97,6 +123,8 @@ def handle_burning(world, x, y):
     if not particle.burning:
         return
 
+    _keep_awake(world, x, y)
+
     chance_self, chance_spread, chance_air = (mat.burn + (0, 0, 0))[:3]
 
     if random.random() < chance_self:
@@ -126,12 +154,17 @@ def handle_burning(world, x, y):
 
 
 def global_update(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    W = world.width
+    H = world.height
+    particle = grid[y][x]
     if not particle:
         return
 
-    neighbor_coords = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
-    neighbors = [(nx, ny, world.get(nx, ny)) for nx, ny in neighbor_coords]
+    neighbors = [
+        (nx, ny, _cell(grid, W, H, nx, ny))
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+    ]
 
     if particle.type == "Песок":
         for nx, ny, neighbor in neighbors:
@@ -182,7 +215,7 @@ def global_update(world, x, y):
             spread_dirs = [(0, 1), (1, 0), (-1, 0), (1, 1), (-1, 1), (0, -1), (1, -1), (-1, -1)]
             dx, dy = spread_dirs[random.randrange(len(spread_dirs))]
             nx, ny = x + dx, y + dy
-            neighbor = world.get(nx, ny)
+            neighbor = _cell(grid, W, H, nx, ny)
 
             if neighbor and neighbor.type == "Песок" and neighbor.flooded < 2:
                 new_p = Particle("Мокрый песок")
@@ -206,9 +239,17 @@ def global_update(world, x, y):
                 return
 
 
+_last_rotation = 0.0
+
+
 def tick_physics(world):
-    global _tick
+    global _tick, _last_rotation
     _tick += 1
+    world.tick_count += 1
+
+    if physics_rotation != _last_rotation or not world.sleep_enabled:
+        _last_rotation = physics_rotation
+        world.wake_all()
 
     if physics_rotation == 180:
         y_range = range(world.height)
@@ -217,13 +258,28 @@ def tick_physics(world):
 
     grid = world.grid
     width = world.width
+    awake = world.chunk_awake
+    chunks_x = world.chunks_x
     for y in y_range:
         row = grid[y]
-        for x in range(width):
-            if row[x] is None:
+        chunk_row = (y // CHUNK_SIZE) * chunks_x
+        for cx in range(chunks_x):
+            if awake[chunk_row + cx] <= 0:
                 continue
-            spread_temperature(world, x, y)
-            update_physics(world, x, y)
+            x0 = cx * CHUNK_SIZE
+            x1 = x0 + CHUNK_SIZE
+            if x1 > width:
+                x1 = width
+            for x in range(x0, x1):
+                if row[x] is None:
+                    continue
+                spread_temperature(world, x, y)
+                update_physics(world, x, y)
+
+    awake = world.chunk_awake
+    for i in range(len(awake)):
+        if awake[i] > 0:
+            awake[i] -= 1
 
 
 def update_chunk(world, y_start, y_end):
@@ -232,13 +288,16 @@ def update_chunk(world, y_start, y_end):
             spread_temperature(world, x, y)
             update_physics(world, x, y)
 
+_gravity_cache = {}
+
 
 def get_gravity_vector(physics_rotation):
-    angle_rad = math.radians(physics_rotation)
-    dx = round(math.sin(angle_rad))
-    dy = round(math.cos(angle_rad))
-    return dx, dy
-
+    vector = _gravity_cache.get(physics_rotation)
+    if vector is None:
+        angle_rad = math.radians(physics_rotation)
+        vector = (round(math.sin(angle_rad)), round(math.cos(angle_rad)))
+        _gravity_cache[physics_rotation] = vector
+    return vector
 
 _HEAT_NEIGHBOURS = ((1, 0), (0, 1), (1, 1), (-1, 1))
 
@@ -288,6 +347,13 @@ def spread_temperature(world, x, y):
         mix = (t1 * c1 + t2 * c2) / (c1 + c2)
         p.temperature = t1 + (mix - t1) * k
         n.temperature = t2 + (mix - t2) * k
+
+        awake = world.chunk_awake
+        wake_targets = world.wake_targets
+        for i in wake_targets[y][x]:
+            awake[i] = AWAKE_TICKS
+        for i in wake_targets[ny][nx]:
+            awake[i] = AWAKE_TICKS
 
 
 def handle_reactions(world, x, y):
@@ -344,22 +410,26 @@ def handle_phase_transition(world, x, y):
 
 
 def powder_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
+    W = world.width
+    H = world.height
 
     dx, dy = get_gravity_vector(physics_rotation)
 
     fall_distance = random.choice([1, 2])
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
-    if world.is_empty_or_liquid(tx, ty):
-        world.move(x, y, tx, ty, particle)
+    if _free(grid, W, H, tx, ty):
+        world.move_to(x, y, tx, ty)
         return
 
     tx = x + dx
     ty = y + dy
-    if world.is_empty_or_liquid(tx, ty):
+    if _free(grid, W, H, tx, ty):
+        _keep_awake(world, x, y)
         return
 
     side_dx = -dy
@@ -371,50 +441,51 @@ def powder_physics(world, x, y):
     ly1 = y + side_dy + dy
     lx2 = x + side_dx * 2 + dx
     ly2 = y + side_dy * 2 + dy
-    if world.is_empty_or_liquid(lx1, ly1) and world.is_empty_or_liquid(lx2, ly2):
+    if _free(grid, W, H, lx1, ly1) and _free(grid, W, H, lx2, ly2):
         directions.append((side_dx * 2 + dx, side_dy * 2 + dy))
-    elif world.is_empty_or_liquid(lx1, ly1):
+    elif _free(grid, W, H, lx1, ly1):
         directions.append((side_dx + dx, side_dy + dy))
 
     rx1 = x - side_dx + dx
     ry1 = y - side_dy + dy
     rx2 = x - side_dx * 2 + dx
     ry2 = y - side_dy * 2 + dy
-    if world.is_empty_or_liquid(rx1, ry1) and world.is_empty_or_liquid(rx2, ry2):
+    if _free(grid, W, H, rx1, ry1) and _free(grid, W, H, rx2, ry2):
         directions.append((-side_dx * 2 + dx, -side_dy * 2 + dy))
-    elif world.is_empty_or_liquid(rx1, ry1):
+    elif _free(grid, W, H, rx1, ry1):
         directions.append((-side_dx + dx, -side_dy + dy))
 
     if directions:
         ddx, ddy = random.choice(directions)
         nx = x + ddx
         ny = y + ddy
-        if world.is_empty_or_liquid(nx, ny):
-            world.move(x, y, nx, ny, particle)
+        if _free(grid, W, H, nx, ny):
+            world.move_to(x, y, nx, ny)
 
 
 def clay_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
 
     dx, dy = get_gravity_vector(physics_rotation)
 
-    fall_distance = 1
-    tx = x + dx * fall_distance
-    ty = y + dy * fall_distance
-    if world.is_empty_or_liquid(tx, ty):
-        world.move(x, y, tx, ty, particle)
-        return
-
-    if world.is_empty_or_liquid(tx, ty):
-        return
+    tx = x + dx
+    ty = y + dy
+    if _free(grid, world.width, world.height, tx, ty):
+        world.move_to(x, y, tx, ty)
 
 
 def wet_powder_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
+    W = world.width
+    H = world.height
+
+    _keep_awake(world, x, y)
 
     if hasattr(particle, "age") and particle.age > 0:
         particle.age += 1
@@ -425,83 +496,96 @@ def wet_powder_physics(world, x, y):
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
 
-    if world.is_empty_or_liquid(tx, ty):
-        world.move(x, y, tx, ty, particle)
+    if _free(grid, W, H, tx, ty):
+        world.move_to(x, y, tx, ty)
         return
 
     side_dx = -dy
     side_dy = dx
     directions = []
 
-    for side in [-1, 1]:
+    for side in (-1, 1):
         sx = x + dx + side_dx * side
         sy = y + dy + side_dy * side
-        if world.is_empty_or_liquid(sx, sy):
+        if _free(grid, W, H, sx, sy):
             directions.append((sx, sy))
 
     if directions:
         nx, ny = random.choice(directions)
-        world.move(x, y, nx, ny, particle)
+        world.move_to(x, y, nx, ny)
+
+
+def _kinetic_target_free(target):
+    return target is None or bool(target.material and target.material.physics_type[0] == 2)
 
 
 def kinetic_sand_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
+    W = world.width
+    H = world.height
 
     neighbors = 0
-    for nx, ny in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]:
-        if world.in_bounds(nx, ny):
-            neighbor = world.get(nx, ny)
+    for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+        if 0 <= nx < W and 0 <= ny < H:
+            neighbor = grid[ny][nx]
             if neighbor and neighbor.type == "Кинетический песок":
                 neighbors += 1
 
     stickiness = min(0.8, neighbors / 4.0)
 
+    dx, dy = get_gravity_vector(physics_rotation)
+    side_dx = -dy
+    side_dy = dx
+
     if random.random() < stickiness:
+        for cx, cy in ((x + dx, y + dy), (x + dx * 2, y + dy * 2),
+                       (x + dx + side_dx, y + dy + side_dy), (x + dx - side_dx, y + dy - side_dy)):
+            if 0 <= cx < W and 0 <= cy < H and _kinetic_target_free(grid[cy][cx]):
+                _keep_awake(world, x, y)
+                break
         return
 
-    dx, dy = get_gravity_vector(physics_rotation)
     fall_distance = 2 if random.random() < 0.05 else 1
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
 
-    if world.in_bounds(tx, ty):
-        target = world.get(tx, ty)
-        if target is None:
-            world.set(tx, ty, particle)
-            world.set(x, y, None)
-            return
-        elif target.material and target.material.physics_type[0] == 2:
-            world.swap(x, y, tx, ty)
+    if 0 <= tx < W and 0 <= ty < H:
+        if _kinetic_target_free(grid[ty][tx]):
+            world.move_to(x, y, tx, ty)
             return
 
-    side_dx = -dy
-    side_dy = dx
     directions = []
 
-    for side in [-1, 1]:
+    for side in (-1, 1):
         nx = x + side_dx * side + dx
         ny = y + side_dy * side + dy
-        if world.in_bounds(nx, ny):
-            target = world.get(nx, ny)
-            if target is None or (target.material and target.material.physics_type[0] == 2):
+        if 0 <= nx < W and 0 <= ny < H:
+            if _kinetic_target_free(grid[ny][nx]):
                 directions.append((nx, ny))
 
     if directions and random.random() < 0.05:
         nx, ny = random.choice(directions)
-        target = world.get(nx, ny)
-        if target is None:
-            world.set(nx, ny, particle)
-            world.set(x, y, None)
-        else:
-            world.swap(x, y, nx, ny)
+        world.move_to(x, y, nx, ny)
+        return
+
+    free_ahead = False
+    for cx, cy in ((x + dx, y + dy), (x + dx * 2, y + dy * 2)):
+        if 0 <= cx < W and 0 <= cy < H and _kinetic_target_free(grid[cy][cx]):
+            free_ahead = True
+    if directions or free_ahead:
+        _keep_awake(world, x, y)
 
 
 def alien_powder_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
+    W = world.width
+    H = world.height
 
     dx, dy = get_gravity_vector(physics_rotation)
     dx, dy = -dx, -dy
@@ -509,14 +593,14 @@ def alien_powder_physics(world, x, y):
     fall_distance = random.choice([1, 2])
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
-    if world.get(tx, ty) is None:
-        world.set(tx, ty, particle)
-        world.set(x, y, None)
+    if _is_none(grid, W, H, tx, ty):
+        world.move_to(x, y, tx, ty)
         return
 
     tx = x + dx
     ty = y + dy
-    if world.get(tx, ty) is None:
+    if _is_none(grid, W, H, tx, ty):
+        _keep_awake(world, x, y)
         return
 
     side_dx = -dy
@@ -528,70 +612,58 @@ def alien_powder_physics(world, x, y):
     ly1 = y + side_dy + dy
     lx2 = x + side_dx * 2 + dx
     ly2 = y + side_dy * 2 + dy
-    if world.get(lx1, ly1) is None and world.get(lx2, ly2) is None:
+    if _is_none(grid, W, H, lx1, ly1) and _is_none(grid, W, H, lx2, ly2):
         directions.append((side_dx * 2 + dx, side_dy * 2 + dy))
-    elif world.get(lx1, ly1) is None:
+    elif _is_none(grid, W, H, lx1, ly1):
         directions.append((side_dx + dx, side_dy + dy))
 
     rx1 = x - side_dx + dx
     ry1 = y - side_dy + dy
     rx2 = x - side_dx * 2 + dx
     ry2 = y - side_dy * 2 + dy
-    if world.get(rx1, ry1) is None and world.get(rx2, ry2) is None:
+    if _is_none(grid, W, H, rx1, ry1) and _is_none(grid, W, H, rx2, ry2):
         directions.append((-side_dx * 2 + dx, -side_dy * 2 + dy))
-    elif world.get(rx1, ry1) is None:
+    elif _is_none(grid, W, H, rx1, ry1):
         directions.append((-side_dx + dx, -side_dy + dy))
 
     if directions:
         ddx, ddy = random.choice(directions)
         nx = x + ddx
         ny = y + ddy
-        if world.get(nx, ny) is None:
-            world.set(nx, ny, particle)
-            world.set(x, y, None)
+        if _is_none(grid, W, H, nx, ny):
+            world.move_to(x, y, nx, ny)
 
+_LIQUID_DOWN = ((-1, 1), (0, 1), (1, 1))
+_LIQUID_SIDE = (-1, 1, 2, -2, -3, 3)
 
 def liquid_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
+    W = world.width
+    H = world.height
 
-    a = random.choice((1, 2, 3))
-    if a == 1:
-        nx, ny = x - 1, y + 1
-        if world.in_bounds(nx, ny) and world.get(nx, ny) is None:
-            world.set(nx, ny, particle)
-            world.set(x, y, None)
-            return
-    elif a == 2:
-        nx, ny = x, y + 1
-        if world.in_bounds(nx, ny) and world.get(nx, ny) is None:
-            world.set(nx, ny, particle)
-            world.set(x, y, None)
-            return
-    else:
-        nx, ny = x + 1, y + 1
-        if world.in_bounds(nx, ny) and world.get(nx, ny) is None:
-            world.set(nx, ny, particle)
-            world.set(x, y, None)
-            return
-    b = random.choice((0, 1, 2, 3, 4, 5))
-    if b == 0:
-        nx, ny = x - 1, y
-    elif b == 1:
-        nx, ny = x + 1, y
-    elif b == 2:
-        nx, ny = x + 2, y
-    elif b == 3:
-        nx, ny = x - 2, y
-    elif b == 4:
-        nx, ny = x - 3, y
-    elif b == 5:
-        nx, ny = x + 3, y
+    adx, ady = random.choice(_LIQUID_DOWN)
+    nx, ny = x + adx, y + ady
+    if 0 <= nx < W and 0 <= ny < H and grid[ny][nx] is None:
+        world.move_to(x, y, nx, ny)
+        return
 
-    if world.in_bounds(nx, ny) and world.get(nx, ny) is None:
-        world.set(nx, ny, particle)
-        world.set(x, y, None)
+    bdx = random.choice(_LIQUID_SIDE)
+    nx = x + bdx
+    if 0 <= nx < W and grid[y][nx] is None:
+        world.move_to(x, y, nx, y)
+        return
+
+    for cdx, cdy in _LIQUID_DOWN:
+        if _is_none(grid, W, H, x + cdx, y + cdy):
+            _keep_awake(world, x, y)
+            return
+    for cdx in _LIQUID_SIDE:
+        if _is_none(grid, W, H, x + cdx, y):
+            _keep_awake(world, x, y)
+            return
 
 
 def solid_physics(world, x, y):
@@ -599,11 +671,14 @@ def solid_physics(world, x, y):
 
 
 def gas_physics(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle:
         return
+    W = world.width
+    H = world.height
 
-    for dy in [1, 2]:
+    for dy in (1, 2):
         ny = y - dy
         if ny < 0:
             continue
@@ -614,15 +689,27 @@ def gas_physics(world, x, y):
 
         nx = x + dx
 
-        if world.is_empty_or_liquid(nx, ny):
-            world.move(x, y, nx, ny, particle)
+        if _free(grid, W, H, nx, ny):
+            world.move_to(x, y, nx, ny)
             return
+
+    for dy in (1, 2):
+        ny = y - dy
+        if ny < 0:
+            continue
+        for dx in (-1, 0, 1):
+            if _free(grid, W, H, x + dx, ny):
+                _keep_awake(world, x, y)
+                return
 
 
 def update_fire_physics(world, x, y):
-    p = world.get(x, y)
+    grid = world.grid
+    p = grid[y][x]
     if not p or not p.material:
         return
+
+    _keep_awake(world, x, y)
 
     p.age += 1
     lifespan = p.max_age
@@ -654,7 +741,8 @@ def update_fire_physics(world, x, y):
         world.draw_cell(x, y)
 
     if p.age < lifespan * 0.8:
-        for dy in [1, 2]:
+        width = world.width
+        for dy in (1, 2):
             ny = y - dy
             if ny < 0:
                 continue
@@ -664,9 +752,8 @@ def update_fire_physics(world, x, y):
                 dx = random.choice([-1, 1])
 
             nx = x + dx
-            if 0 <= nx < world.width and world.get(nx, ny) is None:
-                world.set(nx, ny, p)
-                world.set(x, y, None)
+            if 0 <= nx < width and grid[ny][nx] is None:
+                world.move_to(x, y, nx, ny)
                 return
 
     if p.age >= lifespan:

@@ -36,6 +36,22 @@ def parse_random_args(expr):
     return [int(a.strip()) for a in inner.split(",")]
 
 
+class LazyTextureMap(dict):
+    __slots__ = ("_make",)
+
+    def __init__(self, make):
+        super().__init__()
+        self._make = make
+
+    def __missing__(self, key):
+        value = self._make(key)
+        self[key] = value
+        return value
+
+    def __bool__(self):
+        return True
+
+
 def stable_hash(x, y, char):
     return (x * 73856093) ^ (y * 19349663) ^ (ord(char) * 83492791)
 
@@ -264,6 +280,7 @@ def draw_world(screen, world, temperature_mode=False):
     if world.temperature_mode != temperature_mode:
         world.temperature_mode = temperature_mode
         world.redraw_all()
-    elif temperature_mode:
+    elif temperature_mode and world.drawn_tick != world.tick_count:
+        world.drawn_tick = world.tick_count
         world.redraw_particles()
     screen.blit(world.surface, (0, 0))

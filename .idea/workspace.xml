@@ -4,15 +4,16 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b23592a6-1c07-4a38-8df0-337fc793936d" name="Changes" comment="Idk files changed">
-      <change afterPath="$PROJECT_DIR$/.idea/SandGrain.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" />
+    <list default="true" id="b23592a6-1c07-4a38-8df0-337fc793936d" name="Changes" comment="Some optimization">
+      <change afterPath="$PROJECT_DIR$/engine/timing.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine/constants.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine/constants.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine/draw.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine/draw.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine/materials.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine/materials.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine/paint.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine/paint.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine/physics/physics.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine/physics/physics.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/engine/world.py" beforeDir="false" afterPath="$PROJECT_DIR$/engine/world.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,14 +32,21 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Python.main.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.main.executor": "Run",
+    "Python.random.executor": "Run",
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "master",
+    "last_opened_file_path": "C:/Users/User/Downloads/SandGrain/engine"
   }
-}</component>
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\User\Downloads\SandGrain\engine" />
+    </key>
+  </component>
   <component name="RunManager">
     <configuration name="main" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
       <module name="SandGrain" />
@@ -87,7 +95,31 @@
       <option name="project" value="LOCAL" />
       <updated>1791562384749</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="Idk files changed">
+      <option name="closed" value="true" />
+      <created>1791565859503</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1791565859503</updated>
+    </task>
+    <task id="LOCAL-00003" summary="Idk files changed">
+      <option name="closed" value="true" />
+      <created>1791566103910</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1791566103910</updated>
+    </task>
+    <task id="LOCAL-00004" summary="Some optimization">
+      <option name="closed" value="true" />
+      <created>1791621404814</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1791621404814</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -103,6 +135,7 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Idk files changed" />
-    <option name="LAST_COMMIT_MESSAGE" value="Idk files changed" />
+    <MESSAGE value="Some optimization" />
+    <option name="LAST_COMMIT_MESSAGE" value="Some optimization" />
   </component>
 </project>

@@ -10,6 +10,7 @@ from engine.input import handle_event
 from engine.menu import draw_menus
 from engine.paint import *
 from engine.physics.physics import tick_physics
+from engine.timing import FixedTimestep
 from engine.world import World
 from engine.menu import get_hovered_in_column
 
@@ -119,6 +120,9 @@ def take_world_screenshot(world, objects):
 
 menu_dirty = True
 
+physics_clock = FixedTimestep(PHYSICS_TPS)
+frame_seconds = 0.0
+
 running = True
 while running:
     for event in pygame.event.get():
@@ -170,10 +174,11 @@ while running:
     else:
         last_mouse_pos = None
 
-    tick_physics(world)
     world.objects = objects
-    for obj in objects:
-        obj.update_physics(world)
+    for _ in range(physics_clock.advance(frame_seconds)):
+        tick_physics(world)
+        for obj in objects:
+            obj.update_physics(world)
 
     screen.fill((100, 220, 250))
     for obj in objects:
@@ -213,6 +218,6 @@ while running:
     fps = clock.get_fps()
 
     pygame.display.flip()
-    clock.tick(FPS)
+    frame_seconds = clock.tick(FPS) / 1000.0
 
 pygame.quit()

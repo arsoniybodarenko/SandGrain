@@ -26,6 +26,7 @@ def apply_fire_logic(world, nx, ny, mat):
             particle.temperature = target_temp
 
     world.draw_cell(nx, ny)
+    world.wake(nx, ny)
 
 
 def draw_circle(world, cx, cy, selected_material, radius, erase=False, selected_color=None):

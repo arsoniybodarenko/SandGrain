@@ -5,8 +5,9 @@ COLUMN_WIDTH = 100
 MENU_WIDTH = COLUMN_WIDTH * 3
 WINDOW_WIDTH = GAME_WIDTH + MENU_WIDTH
 WINDOW_HEIGHT = GAME_HEIGHT
-PIXEL_SIZE = 8
+PIXEL_SIZE = 6
 FPS = 100
+PHYSICS_TPS = 48
 painted_colors = [
     ("Красный", (255, 0, 0)),
     ("Красно-оранжевый", (255, 75, 0)),
