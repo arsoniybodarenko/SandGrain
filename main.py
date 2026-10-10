@@ -105,7 +105,7 @@ def take_world_screenshot(world, objects):
     surface.fill((100, 220, 250))
     for obj in objects:
         obj.draw(surface, pixel_size=PIXEL_SIZE, world=world)
-    draw_world(surface, world)
+    surface.blit(world.surface, (0, 0))
     os.makedirs("screenshots", exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"screenshots/world_{timestamp}.png"
@@ -128,11 +128,6 @@ while running:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_t:
                 temperature_mode = not temperature_mode
-                for x in range(world.height * 2):
-                    for y in range(world.width * 2):
-                        if world.is_border(x, y):
-                            continue
-                        world.draw_cell(x, y)
 
         (
             mouse_down, brush_radius, erase_mode,

@@ -1,7 +1,10 @@
 from .constants import *
 from .font import draw_text
 from .particle import Particle
+from .draw import temperature_to_color
 import pygame
+
+_CLEAR = (0, 0, 0, 0)
 
 
 def draw_loading_screen(screen, progress):
@@ -32,39 +35,52 @@ class World:
         self.height = height
         self.grid = [[None for _ in range(width)] for _ in range(height)]
         self.surface = pygame.Surface((self.width * PIXEL_SIZE, self.height * PIXEL_SIZE), pygame.SRCALPHA)
+        self.temperature_mode = False
 
         self.init_borders()
 
     def draw_cell(self, x, y):
-        p = self.get(x, y)
-        if not p:
-            color = (0, 0, 0)
-            alpha = 0
-        elif p.material and p.material.texture_map:
-            base_rgba = p.material.texture_map.get((x, y), (*p.material.color, 255))
-            base_rgb = base_rgba[:3]
-            alpha = base_rgba[3]
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return
 
-            if p.material.paintable and p.color != p.material.color:
-                from .draw import apply_tint
-                tinted_rgb = apply_tint([[base_rgb]], p.color)[0][0]
-                color = tinted_rgb
-            else:
-                color = base_rgb
+        p = self.grid[y][x]
+        if p is None:
+            rgba = _CLEAR
         else:
-            color = p.color
-            alpha = int(p.material.opacity * 255) if p.material else 255
+            mat = p.material
+            if self.temperature_mode and p.temperature is not None and not self.is_border(x, y):
+                r, g, b = temperature_to_color(p.temperature)
+                rgba = (r, g, b, 255)
+            elif mat is not None and mat.texture_map:
+                base = mat.texture_map.get((x, y))
+                if base is None:
+                    base = (*mat.color, 255)
+                r, g, b, a = base
+                if mat.paintable and p.color != mat.color:
+                    tr, tg, tb = p.color
+                    r = r * tr // 255
+                    g = g * tg // 255
+                    b = b * tb // 255
+                rgba = (r, g, b, a)
+            else:
+                col = p.color
+                alpha = int(mat.opacity * 255) if mat is not None else 255
+                rgba = (col[0], col[1], col[2], alpha)
 
-        px = x * PIXEL_SIZE
-        py = y * PIXEL_SIZE
+        self.surface.fill(rgba, (x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE))
 
-        arr = pygame.surfarray.pixels3d(self.surface)
-        arr[px:px + PIXEL_SIZE, py:py + PIXEL_SIZE] = color
-        del arr
+    def redraw_all(self):
+        for y in range(BORDER_SIZE, self.height - BORDER_SIZE):
+            for x in range(BORDER_SIZE, self.width - BORDER_SIZE):
+                self.draw_cell(x, y)
 
-        arr_alpha = pygame.surfarray.pixels_alpha(self.surface)
-        arr_alpha[px:px + PIXEL_SIZE, py:py + PIXEL_SIZE] = alpha
-        del arr_alpha
+    def redraw_particles(self):
+        grid = self.grid
+        for y in range(BORDER_SIZE, self.height - BORDER_SIZE):
+            row = grid[y]
+            for x in range(BORDER_SIZE, self.width - BORDER_SIZE):
+                if row[x] is not None:
+                    self.draw_cell(x, y)
 
     def set(self, x, y, particle):
         if self.in_bounds(x, y) and not self.is_border(x, y):

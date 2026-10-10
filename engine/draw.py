@@ -261,43 +261,9 @@ def temperature_to_color(temp):
 
 
 def draw_world(screen, world, temperature_mode=False):
-    arr = pygame.surfarray.pixels3d(world.surface)
-    arr_alpha = pygame.surfarray.pixels_alpha(world.surface)
-
-    for y in range(world.height):
-        for x in range(world.width):
-            p = world.get(x, y)
-            if world.is_border(x, y):
-                continue
-            if not p:
-                continue
-
-            if temperature_mode and p.temperature is not None:
-                color = temperature_to_color(p.temperature)
-                opacity = 255
-            else:
-                if p.material and p.material.paintable:
-                    from .draw import apply_tint
-                    base_rgba = p.material.texture_map.get((x, y),
-                                                           (*p.material.color, 255)) if p.material.texture_map else (
-                        *p.material.color, 255)
-                    base_rgb = base_rgba[:3]
-                    tinted_rgb = apply_tint([[base_rgb]], p.color)[0][0]
-                    color = tinted_rgb
-                    opacity = int(p.material.opacity * 255) if p.material else 255
-                elif p.material and p.material.texture_map and (x, y) in p.material.texture_map:
-                    r, g, b, a = p.material.texture_map[(x, y)]
-                    color = (r, g, b)
-                    opacity = a
-                else:
-                    color = p.color
-                    opacity = 255
-
-            px = x * PIXEL_SIZE
-            py = y * PIXEL_SIZE
-            arr[px:px + PIXEL_SIZE, py:py + PIXEL_SIZE] = color
-            arr_alpha[px:px + PIXEL_SIZE, py:py + PIXEL_SIZE] = opacity
-
-    del arr
-    del arr_alpha
+    if world.temperature_mode != temperature_mode:
+        world.temperature_mode = temperature_mode
+        world.redraw_all()
+    elif temperature_mode:
+        world.redraw_particles()
     screen.blit(world.surface, (0, 0))

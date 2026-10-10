@@ -1,4 +1,3 @@
-# physics.py
 import math
 import random
 from engine.materials import MATERIALS
@@ -7,22 +6,50 @@ from concurrent.futures import ThreadPoolExecutor
 
 physics_rotation = 0.0
 
+_tick = 0
+_GLOBAL_TYPES = frozenset(("Песок", "Твёрдый песок", "Мокрый песок"))
+_flags_cache = {}
+
+
+def _material_flags(mat):
+    flags = _flags_cache.get(mat)
+    if flags is None:
+        has_phase = (
+                mat.freezing_point is not None
+                or mat.boiling_point is not None
+                or mat.melting_point is not None
+        )
+        flags = (has_phase, bool(mat.reacts_with), bool(mat.flammable))
+        _flags_cache[mat] = flags
+    return flags
+
 
 def update_physics(world, x, y):
-    particle = world.get(x, y)
-    if not particle or particle.updated or not particle.material:
+    particle = world.grid[y][x]
+    if particle is None or particle.updated == _tick:
+        return
+    mat = particle.material
+    if mat is None:
         return
 
-    if handle_phase_transition(world, x, y):
+    ptype, subtype = mat.physics_type
+    has_phase, has_reactions, flammable = _material_flags(mat)
+
+    if ptype == 0 and not (has_phase or has_reactions or flammable) and particle.type not in _GLOBAL_TYPES:
         return
 
-    handle_reactions(world, x, y)
-    handle_burning(world, x, y)
-    global_update(world, x, y)
+    if has_phase and handle_phase_transition(world, x, y):
+        return
 
-    ptype, subtype = particle.material.physics_type
+    if has_reactions:
+        handle_reactions(world, x, y)
+    if flammable:
+        handle_burning(world, x, y)
+    if particle.type in _GLOBAL_TYPES:
+        global_update(world, x, y)
+
     if ptype == 0:
-        particle.updated = True
+        particle.updated = _tick
         return
 
     if ptype == 1:
@@ -36,10 +63,6 @@ def update_physics(world, x, y):
             kinetic_sand_physics(world, x, y)
         elif subtype == 4:
             clay_physics(world, x, y)
-        # elif subtype == 4:
-        #    clay_physics(world, x, y)
-    # elif ptype == "Твердое":
-    #    solid_physics(world, x, y)
     elif ptype == 2:
         liquid_physics(world, x, y)
     elif ptype == 3:
@@ -47,7 +70,7 @@ def update_physics(world, x, y):
     elif ptype == 4:
         update_fire_physics(world, x, y)
 
-    particle.updated = True
+    particle.updated = _tick
 
 
 def handle_burning(world, x, y):
@@ -184,20 +207,23 @@ def global_update(world, x, y):
 
 
 def tick_physics(world):
+    global _tick
+    _tick += 1
+
     if physics_rotation == 180:
         y_range = range(world.height)
     else:
         y_range = reversed(range(world.height))
 
+    grid = world.grid
+    width = world.width
     for y in y_range:
-        for x in range(world.width):
+        row = grid[y]
+        for x in range(width):
+            if row[x] is None:
+                continue
             spread_temperature(world, x, y)
             update_physics(world, x, y)
-
-    for row in world.grid:
-        for p in row:
-            if p:
-                p.updated = False
 
 
 def update_chunk(world, y_start, y_end):
@@ -207,22 +233,6 @@ def update_chunk(world, y_start, y_end):
             update_physics(world, x, y)
 
 
-# def tick_physics(world, num_workers=4):
-#    chunk_size = world.height // num_workers
-#    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-#        futures = []
-#        for i in range(num_workers):
-#            y_start = i * chunk_size
-#            y_end = (i+1) * chunk_size
-#            futures.append(executor.submit(update_chunk, world, y_start, y_end))
-#        for f in futures:
-#            f.result()
-#
-#    for row in world.grid:
-#        for p in row:
-#            if p:
-#                p.updated = False
-
 def get_gravity_vector(physics_rotation):
     angle_rad = math.radians(physics_rotation)
     dx = round(math.sin(angle_rad))
@@ -230,36 +240,54 @@ def get_gravity_vector(physics_rotation):
     return dx, dy
 
 
+_HEAT_NEIGHBOURS = ((1, 0), (0, 1), (1, 1), (-1, 1))
+
+
 def spread_temperature(world, x, y):
-    p = world.get(x, y)
-    if not p or not p.material or p.temperature is None:
+    grid = world.grid
+    p = grid[y][x]
+    if p is None:
+        return
+    mat = p.material
+    if mat is None:
+        return
+    c1 = mat.heat_capacity
+    if c1 == 0:
         return
 
-    for dx in [-1, 0, 1]:
-        for dy in [-1, 0, 1]:
-            if dx == 0 and dy == 0:
-                continue
-            nx, ny = x + dx, y + dy
-            neighbor = world.get(nx, ny)
-            if not neighbor or not neighbor.material or neighbor.temperature is None:
-                continue
+    width = world.width
+    height = world.height
+    for dx, dy in _HEAT_NEIGHBOURS:
+        nx = x + dx
+        ny = y + dy
+        if nx < 0 or nx >= width or ny >= height:
+            continue
+        n = grid[ny][nx]
+        if n is None:
+            continue
+        nmat = n.material
+        if nmat is None:
+            continue
 
-            c1 = p.material.heat_capacity
-            c2 = neighbor.material.heat_capacity
-            if c1 == 0 or c2 == 0:
-                continue
+        t1 = p.temperature
+        t2 = n.temperature
+        diff = t1 - t2
+        if -0.1 < diff < 0.1:
+            continue
 
-            t1 = p.temperature
-            t2 = neighbor.temperature
+        c2 = nmat.heat_capacity
+        if c2 == 0:
+            continue
 
-            if abs(t1 - t2) < 0.1:
-                continue
+        k = min(mat.conduct_heat, nmat.conduct_heat, 1.0)
+        if k <= 0:
+            continue
 
-            k = min(p.material.conduct_heat, neighbor.material.conduct_heat)
-            mix = (t1 * c1 + t2 * c2) / (c1 + c2)
+        k = k * (2.0 - k)
 
-            p.temperature += (mix - t1) * k
-            neighbor.temperature += (mix - t2) * k
+        mix = (t1 * c1 + t2 * c2) / (c1 + c2)
+        p.temperature = t1 + (mix - t1) * k
+        n.temperature = t2 + (mix - t2) * k
 
 
 def handle_reactions(world, x, y):
@@ -598,6 +626,7 @@ def update_fire_physics(world, x, y):
 
     p.age += 1
     lifespan = p.max_age
+    old_color = p.color
 
     progress = p.age / lifespan
 
@@ -620,6 +649,9 @@ def update_fire_physics(world, x, y):
             p.color = (110, 20, 180)
         else:
             p.color = (45, 55, 70)
+
+    if p.color != old_color:
+        world.draw_cell(x, y)
 
     if p.age < lifespan * 0.8:
         for dy in [1, 2]:

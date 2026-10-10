@@ -1,10 +1,11 @@
-import random, time
+import random
 from .materials import MATERIALS
+
 
 class Particle:
     def __init__(self, type_name, color=None, temperature=None):
         self.type = type_name
-        self.updated = False
+        self.updated = -1
         self.flooded = 0
         self.material = MATERIALS.get(type_name)
 
