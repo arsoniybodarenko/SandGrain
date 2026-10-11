@@ -1,13 +1,13 @@
-BORDER_SIZE = 2
+BORDER_SIZE = 4
 GAME_WIDTH = 960
 GAME_HEIGHT = 480
 COLUMN_WIDTH = 100
 MENU_WIDTH = COLUMN_WIDTH * 3
 WINDOW_WIDTH = GAME_WIDTH + MENU_WIDTH
 WINDOW_HEIGHT = GAME_HEIGHT
-PIXEL_SIZE = 6
+PIXEL_SIZE = 4
 FPS = 100
-PHYSICS_TPS = 48
+PHYSICS_TPS = 30
 painted_colors = [
     ("Красный", (255, 0, 0)),
     ("Красно-оранжевый", (255, 75, 0)),
@@ -41,9 +41,13 @@ painted_colors = [
     ("Светло-коричневый", (200, 150, 100)),
 ]
 
+BRUSH_SUBTOOLS = ["Круглая кисть", "Квадратная кисть", "Случайная кисть", "Карандаш", "Ластик"]
+OBJECT_SUBTOOLS = ["Рамка", "Заливка"]
+
 TOOL_SUBTYPES = {
-    "Рисование": ["Круглая кисть", "Квадратная кисть", "Случайная кисть", "Карандаш", "Ластик"],
+    "Рисование": BRUSH_SUBTOOLS,
+    "Объекты": OBJECT_SUBTOOLS,
     "Выбор цвета": painted_colors
 }
 
-TOOLS = ["Рисование", "Выбор цвета"]
+TOOLS = ["Рисование", "Объекты", "Выбор цвета"]

@@ -1,3 +1,4 @@
+import os
 import pygame
 
 FONT = None
@@ -6,7 +7,7 @@ FONT = None
 def init_font():
     global FONT
     try:
-        FONT = pygame.font.Font("assets/SuperDuperPixel.ttf", 32)
+        FONT = pygame.font.Font(os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "SuperDuperPixel.ttf")), 32)
     except:
         FONT = pygame.font.SysFont("Arial", 32)
 

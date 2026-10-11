@@ -1,0 +1,16 @@
+aaaaaaaaaa
+awbwbwbwba
+abbbbbbbwa
+awbccccbba
+abbcddcbwa
+awbcddcbba
+abbccccbwa
+awbbbbbbba
+abwbwbwbwa
+aaaaaaaaaa
+
+a=(60, 60, 80)
+b=(100, 220, 250)
+c=(150, 100, 75)
+d=(100, 70, 50)
+w=(255, 255, 255)

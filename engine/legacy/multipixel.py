@@ -1,7 +1,7 @@
 import pygame
 import math
 import random
-from .particle import Particle
+from engine.particle import Particle
 
 
 class MultiPixelObject:

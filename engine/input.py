@@ -3,8 +3,8 @@ import pygame
 from .constants import *
 from . import physics
 from .materials import MATERIALS
-from .multipixel import MultiPixelObject
-from .menu import get_hovered_in_column
+from .bodies import body_at, spawn_blob
+from .menu import get_hovered_in_column, available_tools
 
 
 def handle_event(event, state, objects, world, take_screenshot):
@@ -27,11 +27,10 @@ def handle_event(event, state, objects, world, take_screenshot):
 
         elif event.key == pygame.K_q:
             mx, my = pygame.mouse.get_pos()
-            grid_x = mx // PIXEL_SIZE
-            grid_y = my // PIXEL_SIZE
-            objects.append(MultiPixelObject(grid_x, grid_y))
+            if mx < GAME_WIDTH:
+                spawn_blob(world, mx // PIXEL_SIZE, my // PIXEL_SIZE)
 
-        elif event.key == pygame.K_e:
+        elif event.key == pygame.K_e and selected_tool != "Объекты":
             erase = not erase
             if erase:
                 selected_subtool = "Ластик"
@@ -96,7 +95,7 @@ def handle_event(event, state, objects, world, take_screenshot):
             max_scroll = max(0, len(TOOLS) * item_height - visible_height)
             scroll_tool_target = min(max(0, scroll_tool_target - event.y * scroll_step), max_scroll)
 
-        damping = 0.5
+        damping = 1.0  # шаг прокрутки применяется целиком: плавность не нужна, а половина шага сбивала ряды
 
         scroll_base += (scroll_base_target - scroll_base) * damping
         scroll_variant += (scroll_variant_target - scroll_variant) * damping
@@ -161,13 +160,10 @@ def handle_event(event, state, objects, world, take_screenshot):
                     selected_subtool = hovered
 
         elif GAME_WIDTH + 250 <= mx < GAME_WIDTH + 290:
-            tools = ["Рисование"]
-            if selected_material in MATERIALS and MATERIALS[selected_material].paintable:
-                tools.append("Выбор цвета")
+            tools = available_tools(selected_material)
 
             if selected_tool not in tools:
                 selected_tool = "Рисование"
-                selected_subtool = selected_subtool or "Круглая кисть"
                 displaying_color = None
 
             hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 250, tools, scroll_tool)
@@ -176,11 +172,23 @@ def handle_event(event, state, objects, world, take_screenshot):
                 scroll_tool = 0
                 scroll_subtool = 0
 
+            # Подинструмент должен подходить выбранному инструменту.
+            if selected_tool == "Объекты":
+                if selected_subtool not in OBJECT_SUBTOOLS:
+                    selected_subtool = OBJECT_SUBTOOLS[0]
+            elif selected_subtool not in BRUSH_SUBTOOLS:
+                selected_subtool = BRUSH_SUBTOOLS[0]
+
     elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
         mouse_down = False
 
-    for obj in objects:
-        obj.handle_event(event, PIXEL_SIZE, world)
+    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+        # Правая кнопка: схватить тело (отпускание и перетаскивание ведёт главный цикл).
+        mx, my = pygame.mouse.get_pos()
+        if mx < GAME_WIDTH:
+            body = body_at(world, mx // PIXEL_SIZE, my // PIXEL_SIZE)
+            if body is not None:
+                body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE)
 
     return (
         mouse_down, brush_radius, erase,

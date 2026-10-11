@@ -5,13 +5,17 @@ from .materials import MATERIALS
 class Particle:
     def __init__(self, type_name, color=None, temperature=None):
         self.type = type_name
-        self.updated = -1
-        self.flooded = 0
         self.material = MATERIALS.get(type_name)
+        if self.material is None:
+            raise ValueError(f"Неизвестный материал: {type_name!r}")
 
-        if temperature:
+        self.updated = -1  # номер тика физики, в котором частица уже обработана
+        self.flooded = 0
+
+        # 0 это допустимая температура (раньше `if temperature:` терял её)
+        if temperature is not None:
             self.temperature = temperature
-        elif self.material and self.material.temperature:
+        elif self.material.temperature is not None:
             self.temperature = self.material.temperature
         else:
             self.temperature = 20.0
@@ -23,18 +27,14 @@ class Particle:
         else:
             self.max_age = None
 
-        if color:
-            self.color = color
-        elif self.material:
-            self.color = tuple(self.material.color)
-        else:
-            self.color = (
-                random.randint(0, 255),
-                random.randint(0, 255),
-                random.randint(0, 255)
-            )
+        # Полёт: скорость в клетках за тик и дробный остаток позиции (см. ballistic_step).
+        self.vx = 0.0
+        self.vy = 0.0
+        self.fx = 0.0
+        self.fy = 0.0
 
-        if self.material:
-            self.opacity = self.material.opacity
-        else:
-            self.opacity = 255
+        # Твёрдое тело (engine/bodies.py), в состав которого входит частица, либо None.
+        self.body = None
+
+        self.color = tuple(color) if color else tuple(self.material.color)
+        self.opacity = self.material.opacity

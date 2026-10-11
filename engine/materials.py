@@ -78,7 +78,7 @@ def get_selected_material(selected_base, selected_variant):
 
 
 def load_texture(name):
-    path = f"assets/textures/{name}.texture"
+    path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "textures", f"{name}.texture"))
     if not os.path.exists(path):
         return [], {}
 
@@ -161,7 +161,7 @@ MATERIALS = {
     ),
 
     "Технический мокрый песок": Material(
-        name="Мокрый песок",
+        name="Технический мокрый песок",
         color=(169, 153, 103),
         physics_type=(1, 1),
         category=("Секретное", "?"),
@@ -205,7 +205,7 @@ MATERIALS = {
         paintable=True
     ),
     "Осколки стекла": Material(
-        name="Песок",
+        name="Осколки стекла",
         color=(200, 200, 200),
         physics_type=(1, 0),
         category=("Строительство", "Стекло", 1),
@@ -375,11 +375,11 @@ MATERIALS = {
         category=("Жидкости и газы", "Вода", 1),
         conduct_heat=0.1,
         conduct_electricity=0.0,
-        freezing_point=20,
+        freezing_point=95,  # конденсация ниже кипения воды (100), чтобы не «мигать» на границе
         opacity=0.7,
         temperature=110,
         texture=load_texture("Пар"),
-        become_to=(None, "Вода")
+        become_to=("Вода", None)
     ),
     "Лёд": Material(
         name="Лёд",
@@ -413,7 +413,7 @@ MATERIALS = {
 
     ),
     "Азот": Material(
-        name="Газообразный азот",
+        name="Азот",
         color=(150, 150, 180),
         physics_type=(3, 0),
         category=("Жидкости и газы", "Азот", 0),
@@ -434,7 +434,10 @@ MATERIALS = {
         category=("Огнеопасное", "Натрий"),
         conduct_heat=0.9,
         opacity=1.0,
-        texture=load_texture("Натрий")
+        texture=load_texture("Натрий"),
+        flammable=True,
+        ignition_point=110,
+        burn=(0.0003, 0.0012, 0.3),
     ),
     "Медь": Material(
         name="Медь",
@@ -463,7 +466,7 @@ MATERIALS = {
         texture=load_texture("Творческая граница")
     ),
     "Камень": Material(
-        name="Творческая граница",
+        name="Камень",
         color=(120, 120, 120),
         physics_type=(0, 0),
         category=("Секретное", "Камень"),

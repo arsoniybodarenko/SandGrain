@@ -2,14 +2,11 @@ import math
 import random
 from engine.materials import MATERIALS
 from engine.world import *
-from concurrent.futures import ThreadPoolExecutor
 
 physics_rotation = 0.0
 
 _tick = 0
-
 _GLOBAL_TYPES = frozenset(("Песок", "Твёрдый песок", "Мокрый песок"))
-
 _flags_cache = {}
 
 
@@ -61,7 +58,8 @@ def update_physics(world, x, y):
     ptype, subtype = mat.physics_type
     has_phase, has_reactions, flammable = _material_flags(mat)
 
-    if ptype == 0 and not (has_phase or has_reactions or flammable) and particle.type not in _GLOBAL_TYPES:
+    if (ptype == 0 and not (has_phase or has_reactions or flammable)
+            and particle.type not in _GLOBAL_TYPES and not (particle.vx or particle.vy)):
         return
 
     if has_phase and handle_phase_transition(world, x, y):
@@ -73,6 +71,16 @@ def update_physics(world, x, y):
         handle_burning(world, x, y)
     if particle.type in _GLOBAL_TYPES:
         global_update(world, x, y)
+
+    if particle.vx or particle.vy:
+        if grid_particle_is(world, x, y, particle):
+            ballistic_step(world, x, y)
+        particle.updated = _tick
+        return
+
+    if particle.body is not None:
+        particle.updated = _tick
+        return
 
     if ptype == 0:
         particle.updated = _tick
@@ -99,6 +107,131 @@ def update_physics(world, x, y):
     particle.updated = _tick
 
 
+def grid_particle_is(world, x, y, particle):
+    return world.grid[y][x] is particle
+
+_BALLISTIC_G = 0.22
+_BALLISTIC_MAX = 3.5
+_BOUNCE = 0.3
+_FLUID_TYPES = (2, 3, 4)
+
+
+def _passable(grid, W, H, x, y):
+    if x < 0 or x >= W or y < 0 or y >= H:
+        return False
+    t = grid[y][x]
+    if t is None:
+        return True
+    m = t.material
+    return t.body is None and m is not None and m.physics_type[0] in _FLUID_TYPES
+
+
+def ballistic_step(world, x, y):
+    grid = world.grid
+    p = grid[y][x]
+    W = world.width
+    H = world.height
+
+    gdx, gdy = get_gravity_vector(physics_rotation)
+    p.vx += gdx * _BALLISTIC_G
+    p.vy += gdy * _BALLISTIC_G
+    speed = math.hypot(p.vx, p.vy)
+    if speed > _BALLISTIC_MAX:
+        p.vx *= _BALLISTIC_MAX / speed
+        p.vy *= _BALLISTIC_MAX / speed
+
+    px = p.fx + p.vx
+    py = p.fy + p.vy
+    mx = int(px)
+    my = int(py)
+    p.fx = px - mx
+    p.fy = py - my
+
+    steps = max(abs(mx), abs(my))
+    cx, cy = x, y
+    for i in range(1, steps + 1):
+        tx = x + int(math.floor(mx * i / steps + 0.5))
+        ty = y + int(math.floor(my * i / steps + 0.5))
+        if tx == cx and ty == cy:
+            continue
+
+        if _passable(grid, W, H, tx, ty):
+            if grid[ty][tx] is not None:
+                p.vx *= 0.8
+                p.vy *= 0.8
+            world.move_to(cx, cy, tx, ty)
+            cx, cy = tx, ty
+            continue
+
+        block_x = tx != cx and not _passable(grid, W, H, tx, cy)
+        block_y = ty != cy and not _passable(grid, W, H, cx, ty)
+        if block_x == block_y:
+            p.vx *= -_BOUNCE
+            p.vy *= -_BOUNCE
+        elif block_x:
+            p.vx *= -_BOUNCE
+        else:
+            p.vy *= -_BOUNCE
+        p.fx = p.fy = 0.0
+        if abs(p.vx) + abs(p.vy) < 0.8:
+            p.vx = p.vy = 0.0
+        break
+
+    if p.vx or p.vy:
+        _keep_awake(world, cx, cy)
+
+
+def _shockwave(world, x, y, radius, strength):
+    grid = world.grid
+    W = world.width
+    H = world.height
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            if dx == 0 and dy == 0:
+                continue
+            nx, ny = x + dx, y + dy
+            if nx < 0 or nx >= W or ny < 0 or ny >= H:
+                continue
+            q = grid[ny][nx]
+            if q is None or q.body is not None or q.vx or q.vy or q.material is None:
+                continue
+            if q.material.physics_type[0] not in (1, 2):
+                continue
+            dist = math.hypot(dx, dy)
+            impulse = strength / dist
+            q.vx += dx / dist * impulse + random.uniform(-0.4, 0.4)
+            q.vy += dy / dist * impulse - 0.6 + random.uniform(-0.4, 0.4)
+
+
+def burning_water_reaction(world, x, y, nx, ny):
+    grid = world.grid
+    sodium = grid[y][x]
+    water = grid[ny][nx]
+    if sodium is None or water is None or sodium.vx or sodium.vy:
+        return
+    if random.random() > 0.5:
+        return
+
+    world.set(nx, ny, Particle("Пар", temperature=130))
+
+    if sodium.body is not None:
+        sodium.body.remove_particle(sodium)
+    sodium.burning = True
+    sodium.temperature = max(sodium.temperature, 600)
+
+    angle = random.uniform(0.0, 2.0 * math.pi)
+    speed = random.uniform(1.4, 3.0)
+    sodium.vx = math.cos(angle) * speed
+    sodium.vy = math.sin(angle) * speed - 1.0
+
+    free = [(x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+            if (dx or dy) and _is_none(grid, world.width, world.height, x + dx, y + dy)]
+    if free and random.random() < 0.6:
+        fx, fy = random.choice(free)
+        world.set(fx, fy, Particle("Огонь"))
+
+    _shockwave(world, x, y, 2, 1.4)
+
 def handle_burning(world, x, y):
     particle = world.get(x, y)
     if not particle or not particle.material:
@@ -123,7 +256,7 @@ def handle_burning(world, x, y):
     if not particle.burning:
         return
 
-    _keep_awake(world, x, y)
+    _keep_awake(world, x, y)  # горение идёт по таймеру/случайности: чанк не должен заснуть
 
     chance_self, chance_spread, chance_air = (mat.burn + (0, 0, 0))[:3]
 
@@ -247,6 +380,7 @@ def tick_physics(world):
     _tick += 1
     world.tick_count += 1
 
+    # Гравитацию повернули или сон отключён: просыпается весь мир.
     if physics_rotation != _last_rotation or not world.sleep_enabled:
         _last_rotation = physics_rotation
         world.wake_all()
@@ -263,6 +397,9 @@ def tick_physics(world):
     for y in y_range:
         row = grid[y]
         chunk_row = (y // CHUNK_SIZE) * chunks_x
+        # Порядок обхода клеток внутри строки прежний (слева направо), мы лишь пропускаем
+        # отрезки, принадлежащие спящим чанкам. Чанк мог проснуться по ходу тика, поэтому
+        # состояние проверяется в момент визита.
         for cx in range(chunks_x):
             if awake[chunk_row + cx] <= 0:
                 continue
@@ -271,11 +408,12 @@ def tick_physics(world):
             if x1 > width:
                 x1 = width
             for x in range(x0, x1):
-                if row[x] is None:
+                if row[x] is None:  # пустые клетки (их большинство) не стоят ни одного вызова
                     continue
                 spread_temperature(world, x, y)
                 update_physics(world, x, y)
 
+    # Каждый чанк «стареет» на тик; изменения внутри тика снова ставят AWAKE_TICKS.
     awake = world.chunk_awake
     for i in range(len(awake)):
         if awake[i] > 0:
@@ -288,6 +426,23 @@ def update_chunk(world, y_start, y_end):
             spread_temperature(world, x, y)
             update_physics(world, x, y)
 
+
+# def tick_physics(world, num_workers=4):
+#    chunk_size = world.height // num_workers
+#    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+#        futures = []
+#        for i in range(num_workers):
+#            y_start = i * chunk_size
+#            y_end = (i+1) * chunk_size
+#            futures.append(executor.submit(update_chunk, world, y_start, y_end))
+#        for f in futures:
+#            f.result()
+#
+#    for row in world.grid:
+#        for p in row:
+#            if p:
+#                p.updated = False
+
 _gravity_cache = {}
 
 
@@ -299,6 +454,9 @@ def get_gravity_vector(physics_rotation):
         _gravity_cache[physics_rotation] = vector
     return vector
 
+
+# Каждая пара соседних клеток обрабатывается один раз (вправо, вниз и две диагонали вниз),
+# а не дважды, как раньше (по разу с каждой стороны).
 _HEAT_NEIGHBOURS = ((1, 0), (0, 1), (1, 1), (-1, 1))
 
 
@@ -341,13 +499,15 @@ def spread_temperature(world, x, y):
         k = min(mat.conduct_heat, nmat.conduct_heat, 1.0)
         if k <= 0:
             continue
-
+        # Раньше пара обрабатывалась дважды: остаток разницы (1-k)^2 вместо (1-k).
+        # Одним проходом даём тот же итог: k_eff = 1 - (1-k)^2.
         k = k * (2.0 - k)
 
         mix = (t1 * c1 + t2 * c2) / (c1 + c2)
         p.temperature = t1 + (mix - t1) * k
         n.temperature = t2 + (mix - t2) * k
 
+        # Теплообмен идёт, пока есть разница температур: обе клетки держат чанки активными.
         awake = world.chunk_awake
         wake_targets = world.wake_targets
         for i in wake_targets[y][x]:
@@ -357,22 +517,26 @@ def spread_temperature(world, x, y):
 
 
 def handle_reactions(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle or not particle.material or not particle.material.reacts_with:
         return
+    reacts = particle.material.reacts_with
 
-    for dx in [-1, 0, 1]:
-        for dy in [-1, 0, 1]:
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
             if dx == 0 and dy == 0:
                 continue
             nx, ny = x + dx, y + dy
             if 0 <= nx < world.width and 0 <= ny < world.height:
-                neighbor = world.get(nx, ny)
-                if neighbor and neighbor.type in particle.material.reacts_with:
-                    func_name = particle.material.reacts_with[neighbor.type]
-                    reaction_func = globals().get(func_name)
+                neighbor = grid[ny][nx]
+                if neighbor and neighbor.type in reacts:
+                    reaction_func = globals().get(reacts[neighbor.type])
                     if callable(reaction_func):
                         reaction_func(world, x, y, nx, ny)
+                        # Реакция могла убрать или запустить частицу: дальше соседей не трогаем.
+                        if grid[y][x] is not particle or particle.vx or particle.vy:
+                            return
 
 
 def handle_phase_transition(world, x, y):
@@ -422,7 +586,7 @@ def powder_physics(world, x, y):
     fall_distance = random.choice([1, 2])
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
-    if _free(grid, W, H, tx, ty):
+    if _free(grid, W, H, tx, ty) and (fall_distance == 1 or _free(grid, W, H, x + dx, y + dy)):
         world.move_to(x, y, tx, ty)
         return
 
@@ -496,7 +660,7 @@ def wet_powder_physics(world, x, y):
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
 
-    if _free(grid, W, H, tx, ty):
+    if _free(grid, W, H, tx, ty) and (fall_distance == 1 or _free(grid, W, H, x + dx, y + dy)):
         world.move_to(x, y, tx, ty)
         return
 
@@ -554,8 +718,12 @@ def kinetic_sand_physics(world, x, y):
 
     if 0 <= tx < W and 0 <= ty < H:
         if _kinetic_target_free(grid[ty][tx]):
-            world.move_to(x, y, tx, ty)
-            return
+            mid_ok = True
+            if fall_distance == 2:
+                mid_ok = _kinetic_target_free(grid[y + dy][x + dx]) if (0 <= x + dx < W and 0 <= y + dy < H) else False
+            if mid_ok:
+                world.move_to(x, y, tx, ty)
+                return
 
     directions = []
 
@@ -593,7 +761,7 @@ def alien_powder_physics(world, x, y):
     fall_distance = random.choice([1, 2])
     tx = x + dx * fall_distance
     ty = y + dy * fall_distance
-    if _is_none(grid, W, H, tx, ty):
+    if _is_none(grid, W, H, tx, ty) and (fall_distance == 1 or _is_none(grid, W, H, x + dx, y + dy)):
         world.move_to(x, y, tx, ty)
         return
 
@@ -636,6 +804,22 @@ def alien_powder_physics(world, x, y):
 _LIQUID_DOWN = ((-1, 1), (0, 1), (1, 1))
 _LIQUID_SIDE = (-1, 1, 2, -2, -3, 3)
 
+_LIQUID_DOWN = ((-1, 1), (0, 1), (1, 1))
+_LIQUID_SIDE = (-1, 1, 2, -2, -3, 3)
+
+
+def _hop_clear(grid, W, y, x, bdx):
+    step = 1 if bdx > 0 else -1
+    for cx in range(x + step, x + bdx, step):
+        if cx < 0 or cx >= W:
+            return False
+        t = grid[y][cx]
+        if t is not None and (t.body is not None or t.material is None
+                              or t.material.physics_type[0] in (0, 1)):
+            return False
+    return True
+
+
 def liquid_physics(world, x, y):
     grid = world.grid
     particle = grid[y][x]
@@ -652,7 +836,7 @@ def liquid_physics(world, x, y):
 
     bdx = random.choice(_LIQUID_SIDE)
     nx = x + bdx
-    if 0 <= nx < W and grid[y][nx] is None:
+    if 0 <= nx < W and grid[y][nx] is None and (abs(bdx) == 1 or _hop_clear(grid, W, y, x, bdx)):
         world.move_to(x, y, nx, y)
         return
 
@@ -661,7 +845,7 @@ def liquid_physics(world, x, y):
             _keep_awake(world, x, y)
             return
     for cdx in _LIQUID_SIDE:
-        if _is_none(grid, W, H, x + cdx, y):
+        if _is_none(grid, W, H, x + cdx, y) and (abs(cdx) == 1 or _hop_clear(grid, W, y, x, cdx)):
             _keep_awake(world, x, y)
             return
 
@@ -677,6 +861,13 @@ def gas_physics(world, x, y):
         return
     W = world.width
     H = world.height
+
+    mat = particle.material
+    if mat.freezing_point is not None or mat.boiling_point is not None:
+        diff = 20.0 - particle.temperature
+        if diff > 0.5 or diff < -0.5:
+            particle.temperature += diff * 0.004
+            _keep_awake(world, x, y)
 
     for dy in (1, 2):
         ny = y - dy
@@ -758,3 +949,5 @@ def update_fire_physics(world, x, y):
 
     if p.age >= lifespan:
         world.set(x, y, None)
+
+

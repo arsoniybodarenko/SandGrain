@@ -1,9 +1,24 @@
+import zlib
+
+import pygame
+
 from .materials import MATERIALS, load_icon
-from .multipixel import *
 from .constants import *
 from .draw import evaluate_texture
 
 use_white_border = True
+
+
+def _stable_seed(a, b):
+    return zlib.crc32(f"{a}|{b}".encode("utf-8")) % 1000
+
+
+def available_tools(selected_material):
+    """Инструменты в меню: «Выбор цвета» есть только у красящихся материалов."""
+    tools = ["Рисование", "Объекты"]
+    if selected_material in MATERIALS and MATERIALS[selected_material].paintable:
+        tools.append("Выбор цвета")
+    return tools
 
 
 def branch_color(seed):
@@ -163,15 +178,13 @@ def draw_menus(menu_surface, selected_material,
     groups = sorted(set(mat.category[0] for mat in MATERIALS.values()))
     draw_column(menu_surface, 130, groups, displaying_group, scroll_group, item_type="group")
 
-    tools = ["Рисование"]
-    if selected_material in MATERIALS and MATERIALS[selected_material].paintable:
-        tools.append("Выбор цвета")
+    tools = available_tools(selected_material)
 
     draw_column(menu_surface, 250, tools, selected_tool, scroll_tool, item_type="tool")
 
     if selected_tool in TOOL_SUBTYPES:
         sub_items = TOOL_SUBTYPES[selected_tool]
-        item_type = "subtool" if selected_tool == "Рисование" else "color"
+        item_type = "subtool" if selected_tool in ("Рисование", "Объекты") else "color"
         selected = selected_subtool if item_type == "subtool" else selected_color
         draw_column(menu_surface, 190, sub_items, selected, scroll_subtool, item_type=item_type)
 
@@ -235,7 +248,7 @@ def draw_branches(surface,
                 child_y = get_center(ci, scroll_child)
                 if mode == "color":
                     parent_y = 100
-                color = branch_color(hash((parent, child)) % 1000)
+                color = branch_color(_stable_seed(parent, child))
                 draw_curve(
                     surface,
                     (child_x + 40, child_y),
@@ -269,7 +282,7 @@ def draw_branches(surface,
 
                 if valid:
                     sub_y = get_center(si, scroll_subchild)
-                    color = branch_color(hash((child, sub)) % 1000)
+                    color = branch_color(_stable_seed(child, sub))
                     draw_curve(
                         surface,
                         (subchild_x, sub_y),

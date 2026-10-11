@@ -4,6 +4,7 @@ from datetime import datetime
 import pygame
 
 from engine.constants import *
+from engine.bodies import make_bodies, select_flood, select_rect, update_bodies
 from engine.draw import draw_world
 from engine.font import init_font, draw_text, get_font
 from engine.input import handle_event
@@ -12,7 +13,7 @@ from engine.paint import *
 from engine.physics.physics import tick_physics
 from engine.timing import FixedTimestep
 from engine.world import World
-from engine.menu import get_hovered_in_column
+from engine.menu import get_hovered_in_column, available_tools
 
 pygame.init()
 init_font()
@@ -28,7 +29,7 @@ GRID_HEIGHT = GAME_HEIGHT // PIXEL_SIZE
 world = World(GRID_WIDTH, GRID_HEIGHT)
 world.precompute_textures(screen)
 
-objects = []
+objects = world.bodies
 brush_radius = 1
 last_mouse_pos = None
 mouse_down = False
@@ -86,9 +87,7 @@ def draw_hover_text(screen, mx, my,
             hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 190, sub_items, scroll_subtool)
 
     elif GAME_WIDTH + 250 <= mx < GAME_WIDTH + 290:
-        tools = ["Рисование"]
-        if selected_material in MATERIALS and MATERIALS[selected_material].paintable:
-            tools.append("Выбор цвета")
+        tools = available_tools(selected_material)
         hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 250, tools, scroll_tool)
 
     if hovered_name:
@@ -104,8 +103,6 @@ def take_world_screenshot(world, objects):
     surface = pygame.Surface((world.width * PIXEL_SIZE, world.height * PIXEL_SIZE), flags=pygame.SRCALPHA, depth=32)
 
     surface.fill((100, 220, 250))
-    for obj in objects:
-        obj.draw(surface, pixel_size=PIXEL_SIZE, world=world)
     surface.blit(world.surface, (0, 0))
     os.makedirs("screenshots", exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -119,6 +116,13 @@ def take_world_screenshot(world, objects):
 #            world.set(x+2, y+2, Particle(None, color=None))
 
 menu_dirty = True
+
+selection_start = None
+selection_end = None
+notice_text = None
+notice_until = 0
+highlight = pygame.Surface((PIXEL_SIZE, PIXEL_SIZE), pygame.SRCALPHA)
+highlight.fill((255, 255, 255, 70))
 
 physics_clock = FixedTimestep(PHYSICS_TPS)
 frame_seconds = 0.0
@@ -160,30 +164,66 @@ while running:
     mx, my = pygame.mouse.get_pos()
     gx, gy = mx // PIXEL_SIZE, my // PIXEL_SIZE
 
-    if mouse_down and mx < GAME_WIDTH:
-        if last_mouse_pos:
-            lx, ly = last_mouse_pos
-            draw_line(world, lx, ly, gx, gy, selected_material, brush_radius, erase=erase_mode,
-                      brush_type=selected_subtool, selected_color=selected_color)
+    right_pressed = pygame.mouse.get_pressed()[2]
+    for body in world.bodies:
+        if body.grab is not None:
+            body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE) if right_pressed else None
 
-        else:
-            apply_brush(world, gx, gy, selected_material, brush_radius, erase=erase_mode, brush_type=selected_subtool,
-                        selected_color=selected_color)
-
-        last_mouse_pos = (gx, gy)
-    else:
+    if selected_tool == "Объекты":
         last_mouse_pos = None
+        if mouse_down and mx < GAME_WIDTH:
+            if selection_start is None:
+                selection_start = (gx, gy)
+            selection_end = (gx, gy)
+        elif selection_start is not None:
+            x0, y0 = selection_start
+            x1, y1 = selection_end or selection_start
+            if selected_subtool == "Заливка":
+                coords = select_flood(world, x0, y0)
+            else:
+                coords = select_rect(world, x0, y0, x1, y1)
+            _, skipped = make_bodies(world, coords)
+            if skipped:
+                notice_text = "Слишком большой объект"
+                notice_until = pygame.time.get_ticks() + 2000
+            selection_start = selection_end = None
+    else:
+        selection_start = selection_end = None
+        if mouse_down and mx < GAME_WIDTH:
+            if last_mouse_pos:
+                lx, ly = last_mouse_pos
+                draw_line(world, lx, ly, gx, gy, selected_material, brush_radius, erase=erase_mode,
+                          brush_type=selected_subtool, selected_color=selected_color)
 
-    world.objects = objects
+            else:
+                apply_brush(world, gx, gy, selected_material, brush_radius, erase=erase_mode,
+                            brush_type=selected_subtool, selected_color=selected_color)
+
+            last_mouse_pos = (gx, gy)
+        else:
+            last_mouse_pos = None
+
     for _ in range(physics_clock.advance(frame_seconds)):
         tick_physics(world)
-        for obj in objects:
-            obj.update_physics(world)
+        update_bodies(world)
 
     screen.fill((100, 220, 250))
-    for obj in objects:
-        obj.draw(screen, PIXEL_SIZE, world)
     draw_world(screen, world, temperature_mode)
+
+    if selected_tool == "Объекты":
+        for body in world.bodies:
+            for (bx, by) in body.cover:
+                screen.blit(highlight, (bx * PIXEL_SIZE, by * PIXEL_SIZE))
+        if selection_start is not None and selected_subtool == "Рамка":
+            ex, ey = selection_end or selection_start
+            rx0, rx1 = sorted((selection_start[0], ex))
+            ry0, ry1 = sorted((selection_start[1], ey))
+            pygame.draw.rect(screen, (255, 255, 255),
+                             (rx0 * PIXEL_SIZE, ry0 * PIXEL_SIZE,
+                              (rx1 - rx0 + 1) * PIXEL_SIZE, (ry1 - ry0 + 1) * PIXEL_SIZE), 2)
+
+    if notice_text and pygame.time.get_ticks() < notice_until:
+        draw_text(screen, notice_text, 10, 10)
 
     hovered_name = None
 

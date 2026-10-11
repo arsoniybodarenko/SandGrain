@@ -26,11 +26,11 @@ def apply_fire_logic(world, nx, ny, mat):
             particle.temperature = target_temp
 
     world.draw_cell(nx, ny)
-    world.wake(nx, ny)
+    world.wake(nx, ny)  # температура изменилась без set(): чанк должен проснуться
 
 
 def draw_circle(world, cx, cy, selected_material, radius, erase=False, selected_color=None):
-    mat = MATERIALS[selected_material]
+    mat = MATERIALS.get(selected_material)
 
     for dx in range(-radius, radius + 1):
         for dy in range(-radius, radius + 1):
@@ -58,7 +58,7 @@ def draw_square(world, cx, cy, selected_material, radius, erase=False, selected_
             nx, ny = cx + dx, cy + dy
             if 0 <= nx < world.width and 0 <= ny < world.height:
 
-                if selected_material in ("Огонь", "Гиперогонь"):
+                if selected_material in ("Огонь", "Гиперогонь") and not erase:
                     apply_fire_logic(world, nx, ny, mat)
                     continue
 
@@ -81,7 +81,7 @@ def draw_random(world, cx, cy, selected_material, radius, erase=False, selected_
 
         if 0 <= nx < world.width and 0 <= ny < world.height:
 
-            if selected_material in ("Огонь", "Гиперогонь"):
+            if selected_material in ("Огонь", "Гиперогонь") and not erase:
                 apply_fire_logic(world, nx, ny, mat)
                 continue
 
@@ -107,8 +107,8 @@ def draw_pencil(world, cx, cy, radius, selected_color):
 
 
 def apply_brush(world, x, y, selected_material, radius, erase, brush_type, selected_color=None):
-    mat = MATERIALS[selected_material]
-    tint = selected_color if mat.paintable else None
+    mat = MATERIALS.get(selected_material)
+    tint = selected_color if mat is not None and mat.paintable else None
 
     if brush_type == "Карандаш":
         draw_pencil(world, x, y, radius, selected_color)
@@ -116,6 +116,9 @@ def apply_brush(world, x, y, selected_material, radius, erase, brush_type, selec
 
     if brush_type == "Ластик":
         draw_circle(world, x, y, selected_material, radius, erase=True)
+        return
+
+    if mat is None:  # рисовать нечем
         return
 
     if brush_type == "Круглая кисть":
