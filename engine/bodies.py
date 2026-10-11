@@ -3,9 +3,9 @@ from collections import deque
 
 from .physics import physics as _phys
 
-MAX_BODY_CELLS = 800
+MAX_BODY_CELLS = 1024
 GRAVITY = 0.12
-MAX_SPEED = 2.0
+MAX_SPEED = 3.0
 REST_TICKS = 6
 SUBSTEP = 0.5
 MAX_OMEGA = 0.12
@@ -519,10 +519,10 @@ def update_bodies(world):
     world.bodies[:] = [b for b in world.bodies if not b.dead]
 
 
-_BLOB_SHAPE = ("  ####  ", " ###### ", "########", "#######", " ###### ", "  ###  ")
+_BLOB_SHAPE = ("  ####  ", " ###### ", "########", "####### ", " ###### ", "   ###  ")
 
 
-def spawn_blob(world, gx, gy, material="Скала"):
+def spawn_blob(world, gx, gy, material="Камень"):
     from .particle import Particle
     coords = []
     h = len(_BLOB_SHAPE)

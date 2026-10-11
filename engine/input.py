@@ -95,7 +95,7 @@ def handle_event(event, state, objects, world, take_screenshot):
             max_scroll = max(0, len(TOOLS) * item_height - visible_height)
             scroll_tool_target = min(max(0, scroll_tool_target - event.y * scroll_step), max_scroll)
 
-        damping = 1.0  # шаг прокрутки применяется целиком: плавность не нужна, а половина шага сбивала ряды
+        damping = 1.0
 
         scroll_base += (scroll_base_target - scroll_base) * damping
         scroll_variant += (scroll_variant_target - scroll_variant) * damping
@@ -150,8 +150,6 @@ def handle_event(event, state, objects, world, take_screenshot):
                 if hovered:
                     displaying_color = hovered[1] if isinstance(hovered, tuple) else hovered
                     selected_color = displaying_color
-                    # selected_tool = "Рисование"
-                    # selected_subtool = selected_subtool or "Круглая кисть"
 
             elif selected_tool in TOOL_SUBTYPES:
                 sub_items = TOOL_SUBTYPES[selected_tool]
@@ -172,7 +170,6 @@ def handle_event(event, state, objects, world, take_screenshot):
                 scroll_tool = 0
                 scroll_subtool = 0
 
-            # Подинструмент должен подходить выбранному инструменту.
             if selected_tool == "Объекты":
                 if selected_subtool not in OBJECT_SUBTOOLS:
                     selected_subtool = OBJECT_SUBTOOLS[0]
@@ -183,7 +180,6 @@ def handle_event(event, state, objects, world, take_screenshot):
         mouse_down = False
 
     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-        # Правая кнопка: схватить тело (отпускание и перетаскивание ведёт главный цикл).
         mx, my = pygame.mouse.get_pos()
         if mx < GAME_WIDTH:
             body = body_at(world, mx // PIXEL_SIZE, my // PIXEL_SIZE)

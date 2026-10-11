@@ -11,5 +11,5 @@ accccccccc
 
 
 a=fixed(0)
-b=fixed(+10)
-c=fixed(-20)
+b=fixed(+30)
+c=fixed(-30)

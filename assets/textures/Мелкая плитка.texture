@@ -1,10 +1,11 @@
 aaaab
-abbbc
-abbbc
-abbbc
+abdbc
+adbdc
+abbdc
 bcccc
 
-a = fixed(+10)
+a = fixed(+25)
 b = fixed(+0)
-c = fixed(-10)
+c = fixed(-25)
+d = random(-1, +3,+5)
 

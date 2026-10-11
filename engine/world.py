@@ -6,13 +6,9 @@ import pygame
 
 _CLEAR = (0, 0, 0, 0)
 
-# --- «сон» чанков ---------------------------------------------------------
-# Мир делится на квадратные чанки. Чанк, в котором ничего не менялось, физикой не
-# обрабатывается. Любое изменение клетки будит её чанк и соседние чанки, если клетка
-# ближе WAKE_MARGIN к их границе (частицы ходят максимум на 3 клетки).
 CHUNK_SIZE = 16
 WAKE_MARGIN = 3
-AWAKE_TICKS = 3  # сколько тиков чанк остаётся активным после последнего пробуждения
+AWAKE_TICKS = 3
 
 
 def draw_loading_screen(screen, progress):
@@ -43,12 +39,12 @@ class World:
         self.height = height
         self.grid = [[None for _ in range(width)] for _ in range(height)]
         self.surface = pygame.Surface((self.width * PIXEL_SIZE, self.height * PIXEL_SIZE), pygame.SRCALPHA)
-        self.temperature_mode = False  # тепловая карта; переключается в draw_world
-        self.tick_count = 0  # сколько тиков физики прошло
-        self.drawn_tick = -1  # на каком тике в последний раз перерисовывали тепловую карту
+        self.temperature_mode = False
+        self.tick_count = 0
+        self.drawn_tick = -1
 
-        self.sleep_enabled = True  # False = всегда обрабатывать все чанки (для отладки и тестов)
-        self.bodies = []  # твёрдые многоклеточные тела (engine/bodies.py)
+        self.sleep_enabled = True
+        self.bodies = []
         self.chunks_x = -(-width // CHUNK_SIZE)
         self.chunks_y = -(-height // CHUNK_SIZE)
         self.chunk_awake = [AWAKE_TICKS] * (self.chunks_x * self.chunks_y)
@@ -57,11 +53,6 @@ class World:
         self.init_borders()
 
     def draw_cell(self, x, y):
-        """Перерисовывает одну клетку на world.surface.
-
-        Это единственное место, где клетка превращается в пиксели: мир рисуется
-        инкрементально (при set/swap), а не целиком каждый кадр.
-        """
         if not (0 <= x < self.width and 0 <= y < self.height):
             return
 
@@ -75,7 +66,7 @@ class World:
                 rgba = (r, g, b, 255)
             elif mat is not None and mat.texture_map:
                 try:
-                    base = mat.texture_map[(x, y)]  # у ленивой карты __missing__ досчитает клетку
+                    base = mat.texture_map[(x, y)]
                 except KeyError:
                     base = (*mat.color, 255)
                 r, g, b, a = base
@@ -90,19 +81,15 @@ class World:
                 alpha = int(mat.opacity * 255) if mat is not None else 255
                 rgba = (col[0], col[1], col[2], alpha)
 
-        # Surface.fill перезаписывает и цвет, и альфу (без смешивания) — один C-вызов
-        # вместо двух блокировок surfarray и двух срезов numpy на клетку.
         self.surface.fill(rgba, (x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE))
 
     def redraw_all(self):
-        """Полная перерисовка внутренней области (границы остаются как есть)."""
         self.drawn_tick = self.tick_count
         for y in range(BORDER_SIZE, self.height - BORDER_SIZE):
             for x in range(BORDER_SIZE, self.width - BORDER_SIZE):
                 self.draw_cell(x, y)
 
     def redraw_particles(self):
-        """Перерисовка только занятых клеток (нужна в режиме температуры: она меняется каждый кадр)."""
         grid = self.grid
         for y in range(BORDER_SIZE, self.height - BORDER_SIZE):
             row = grid[y]
@@ -111,7 +98,6 @@ class World:
                     self.draw_cell(x, y)
 
     def _wake_targets(self, x, y):
-        """Индексы чанков, которые нужно разбудить при изменении клетки (x, y)."""
         cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
         lx, ly = x - cx * CHUNK_SIZE, y - cy * CHUNK_SIZE
         xs = [cx]
@@ -127,14 +113,12 @@ class World:
         return tuple(j * self.chunks_x + i for j in ys for i in xs)
 
     def wake(self, x, y):
-        """Будит чанки вокруг клетки (нужно, если клетку меняют не через set/swap/move_to)."""
         if 0 <= x < self.width and 0 <= y < self.height:
             awake = self.chunk_awake
             for i in self.wake_targets[y][x]:
                 awake[i] = AWAKE_TICKS
 
     def region_awake(self, x0, y0, x1, y1):
-        """Есть ли активные чанки в прямоугольнике клеток (с запасом в одну клетку)."""
         cx0 = max(0, (x0 - 1) // CHUNK_SIZE)
         cx1 = min(self.chunks_x - 1, (x1 + 1) // CHUNK_SIZE)
         cy0 = max(0, (y0 - 1) // CHUNK_SIZE)
@@ -151,8 +135,6 @@ class World:
         self.chunk_awake = [AWAKE_TICKS] * len(self.chunk_awake)
 
     def move_to(self, x, y, nx, ny):
-        """Быстрый ход частицы в (nx, ny). Вызывающий код уже проверил, что цель в границах
-        и свободна (пусто или жидкость). Если там жидкость, они меняются местами."""
         grid = self.grid
         target = grid[ny][nx]
         grid[ny][nx] = grid[y][x]
@@ -194,13 +176,6 @@ class World:
         return True
 
     def precompute_textures(self, screen):
-        """Готовит карты текстур материалов.
-
-        Цвет клетки это чистая функция от (материал, x, y), поэтому почти все карты
-        считаются лениво, при первой отрисовке клетки (LazyTextureMap), и результат
-        совпадает с полным предрасчётом. Исключение: текстуры с same()/for_tile(). У них
-        значение зависит от порядка обхода, поэтому они считаются сразу, как раньше.
-        """
         from .draw import evaluate_texture_color, frame_same_cache, tile_cache, LazyTextureMap
         from .materials import all_materials
 
@@ -228,7 +203,6 @@ class World:
                 opacity = int(material.opacity * 255)
                 exprs = list(palette.values())
                 order_dependent = any("same(" in e or "for_tile(" in e for e in exprs)
-                # Без random()/randint() цвет зависит только от символа, значит его можно считать один раз.
                 deterministic = not any(("random" in e or "randint" in e) for e in exprs)
                 char_memo = {}
 

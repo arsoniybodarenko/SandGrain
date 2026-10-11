@@ -26,7 +26,7 @@ def apply_fire_logic(world, nx, ny, mat):
             particle.temperature = target_temp
 
     world.draw_cell(nx, ny)
-    world.wake(nx, ny)  # температура изменилась без set(): чанк должен проснуться
+    world.wake(nx, ny)
 
 
 def draw_circle(world, cx, cy, selected_material, radius, erase=False, selected_color=None):
@@ -118,7 +118,7 @@ def apply_brush(world, x, y, selected_material, radius, erase, brush_type, selec
         draw_circle(world, x, y, selected_material, radius, erase=True)
         return
 
-    if mat is None:  # рисовать нечем
+    if mat is None:
         return
 
     if brush_type == "Круглая кисть":

@@ -109,12 +109,6 @@ def take_world_screenshot(world, objects):
     filename = f"screenshots/world_{timestamp}.png"
     pygame.image.save(surface, filename)
 
-
-# for x in range(GAME_WIDTH):
-#    for y in range(GAME_HEIGHT):
-#        if random.random() > 0.90:
-#            world.set(x+2, y+2, Particle(None, color=None))
-
 menu_dirty = True
 
 selection_start = None

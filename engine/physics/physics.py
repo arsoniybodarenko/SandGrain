@@ -112,8 +112,8 @@ def grid_particle_is(world, x, y, particle):
 
 _BALLISTIC_G = 0.22
 _BALLISTIC_MAX = 3.5
-_BOUNCE = 0.3
-_FLUID_TYPES = (2, 3, 4)
+_BOUNCE = 0.03
+_PASSABLE_TYPES = (2, 3, 4)
 
 
 def _passable(grid, W, H, x, y):
@@ -123,7 +123,7 @@ def _passable(grid, W, H, x, y):
     if t is None:
         return True
     m = t.material
-    return t.body is None and m is not None and m.physics_type[0] in _FLUID_TYPES
+    return t.body is None and m is not None and m.physics_type[0] in _PASSABLE_TYPES
 
 
 def ballistic_step(world, x, y):
@@ -256,7 +256,7 @@ def handle_burning(world, x, y):
     if not particle.burning:
         return
 
-    _keep_awake(world, x, y)  # горение идёт по таймеру/случайности: чанк не должен заснуть
+    _keep_awake(world, x, y)
 
     chance_self, chance_spread, chance_air = (mat.burn + (0, 0, 0))[:3]
 
@@ -380,7 +380,6 @@ def tick_physics(world):
     _tick += 1
     world.tick_count += 1
 
-    # Гравитацию повернули или сон отключён: просыпается весь мир.
     if physics_rotation != _last_rotation or not world.sleep_enabled:
         _last_rotation = physics_rotation
         world.wake_all()
@@ -397,9 +396,6 @@ def tick_physics(world):
     for y in y_range:
         row = grid[y]
         chunk_row = (y // CHUNK_SIZE) * chunks_x
-        # Порядок обхода клеток внутри строки прежний (слева направо), мы лишь пропускаем
-        # отрезки, принадлежащие спящим чанкам. Чанк мог проснуться по ходу тика, поэтому
-        # состояние проверяется в момент визита.
         for cx in range(chunks_x):
             if awake[chunk_row + cx] <= 0:
                 continue
@@ -408,12 +404,11 @@ def tick_physics(world):
             if x1 > width:
                 x1 = width
             for x in range(x0, x1):
-                if row[x] is None:  # пустые клетки (их большинство) не стоят ни одного вызова
+                if row[x] is None:
                     continue
                 spread_temperature(world, x, y)
                 update_physics(world, x, y)
 
-    # Каждый чанк «стареет» на тик; изменения внутри тика снова ставят AWAKE_TICKS.
     awake = world.chunk_awake
     for i in range(len(awake)):
         if awake[i] > 0:
@@ -426,23 +421,6 @@ def update_chunk(world, y_start, y_end):
             spread_temperature(world, x, y)
             update_physics(world, x, y)
 
-
-# def tick_physics(world, num_workers=4):
-#    chunk_size = world.height // num_workers
-#    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-#        futures = []
-#        for i in range(num_workers):
-#            y_start = i * chunk_size
-#            y_end = (i+1) * chunk_size
-#            futures.append(executor.submit(update_chunk, world, y_start, y_end))
-#        for f in futures:
-#            f.result()
-#
-#    for row in world.grid:
-#        for p in row:
-#            if p:
-#                p.updated = False
-
 _gravity_cache = {}
 
 
@@ -454,9 +432,6 @@ def get_gravity_vector(physics_rotation):
         _gravity_cache[physics_rotation] = vector
     return vector
 
-
-# Каждая пара соседних клеток обрабатывается один раз (вправо, вниз и две диагонали вниз),
-# а не дважды, как раньше (по разу с каждой стороны).
 _HEAT_NEIGHBOURS = ((1, 0), (0, 1), (1, 1), (-1, 1))
 
 
@@ -499,15 +474,13 @@ def spread_temperature(world, x, y):
         k = min(mat.conduct_heat, nmat.conduct_heat, 1.0)
         if k <= 0:
             continue
-        # Раньше пара обрабатывалась дважды: остаток разницы (1-k)^2 вместо (1-k).
-        # Одним проходом даём тот же итог: k_eff = 1 - (1-k)^2.
+
         k = k * (2.0 - k)
 
         mix = (t1 * c1 + t2 * c2) / (c1 + c2)
         p.temperature = t1 + (mix - t1) * k
         n.temperature = t2 + (mix - t2) * k
 
-        # Теплообмен идёт, пока есть разница температур: обе клетки держат чанки активными.
         awake = world.chunk_awake
         wake_targets = world.wake_targets
         for i in wake_targets[y][x]:
@@ -534,7 +507,7 @@ def handle_reactions(world, x, y):
                     reaction_func = globals().get(reacts[neighbor.type])
                     if callable(reaction_func):
                         reaction_func(world, x, y, nx, ny)
-                        # Реакция могла убрать или запустить частицу: дальше соседей не трогаем.
+
                         if grid[y][x] is not particle or particle.vx or particle.vy:
                             return
 

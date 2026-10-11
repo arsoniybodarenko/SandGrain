@@ -291,7 +291,6 @@ def draw_branches(surface,
                         color=color
                     )
 
-
 def get_hovered_in_column(mx, my, column_x, items, scroll_offset):
     y_offset = 10 - scroll_offset
     for name in items:
