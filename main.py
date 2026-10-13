@@ -128,7 +128,7 @@ while running:
             running = False
 
         elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_t:
+            if event.key == pygame.K_w:
                 temperature_mode = not temperature_mode
 
         (
@@ -161,7 +161,10 @@ while running:
     right_pressed = pygame.mouse.get_pressed()[2]
     for body in world.bodies:
         if body.grab is not None:
-            body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE) if right_pressed else None
+            if right_pressed:
+                body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE)
+            else:
+                body.end_grab()
 
     if selected_tool == "Объекты":
         last_mouse_pos = None

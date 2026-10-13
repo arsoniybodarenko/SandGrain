@@ -1,16 +1,17 @@
 aaaaaaaaaa
-awbwbwbwba
-abbbbbbbwa
-awbccccbba
-abbcddcbwa
-awbcddcbba
-abbccccbwa
-awbbbbbbba
-abwbwbwbwa
+abbbbbbbba
+abbbbbbbba
+abbeffebba
+abeffedcba
+abdeddccba
+abcddccbba
+abbcccbbba
+abbbbbbbba
 aaaaaaaaaa
 
 a=(60, 60, 80)
 b=(100, 220, 250)
-c=(150, 100, 75)
-d=(100, 70, 50)
-w=(255, 255, 255)
+f=(120,120,120)
+e=(95,95,95)
+d=(75,75,75)
+c=(50,50,50)

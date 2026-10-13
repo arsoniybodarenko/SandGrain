@@ -10,7 +10,9 @@ class Material:
         "conduct_electricity", "explosive", "meltable", "freezable",
         "freezing_point", "melting_point", "boiling_point", "ignition_point",
         "temperature", "texture", "opacity", "glow", "category",
-        "reacts_with", "texture_map", "become_to", "paintable", "burn"
+        "reacts_with", "texture_map", "become_to", "paintable", "burn",
+        "density", "hardness", "shatter_to", "shatter_chance", "viscosity",
+        "extinguishes", "impact"
     )
 
     def __init__(
@@ -38,7 +40,14 @@ class Material:
             temperature=20,
             become_to=None,
             paintable=False,
-            burn=None
+            burn=None,
+            density=1.0,
+            hardness=None,
+            shatter_to=None,
+            shatter_chance=1.0,
+            viscosity=0.0,
+            extinguishes=False,
+            impact=None
     ):
         self.name = name
         self.color = color
@@ -65,6 +74,13 @@ class Material:
         self.become_to = become_to or ()
         self.paintable = paintable
         self.burn = burn or ()
+        self.density = density
+        self.hardness = hardness
+        self.shatter_to = shatter_to
+        self.shatter_chance = shatter_chance
+        self.viscosity = viscosity
+        self.extinguishes = extinguishes
+        self.impact = impact
         global all_materials
         all_materials.append(self)
 
@@ -77,10 +93,16 @@ def get_selected_material(selected_base, selected_variant):
     return None
 
 
+class TextureData(tuple):
+    name = None
+
+
 def load_texture(name):
     path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "textures", f"{name}.texture"))
     if not os.path.exists(path):
-        return [], {}
+        data = TextureData(([], {}))
+        data.name = None
+        return data
 
     with open(path, "r", encoding="utf-8") as f:
         lines = [line.rstrip() for line in f if line.strip()]
@@ -94,7 +116,9 @@ def load_texture(name):
         else:
             texture_lines.append(line)
 
-    return texture_lines, palette
+    data = TextureData((texture_lines, palette))
+    data.name = name
+    return data
 
 
 def load_icon(name):
@@ -137,17 +161,8 @@ MATERIALS = {
         category=("Строительство", "Песок", 0),
         conduct_heat=0.1,
         opacity=1.0,
-        texture=load_texture("Песок")
-    ),
-    "Глина": Material(
-        name="Глина",
-        color=(125, 85, 65),
-        physics_type=(1, 4),
-        category=("Строительство", "Глина"),
-        conduct_heat=0.15,
-        opacity=1.0,
-        paintable=True,
-        texture=load_texture("Глина")
+        texture=load_texture("Песок"),
+        density=1.6
     ),
 
     "Мокрый песок": Material(
@@ -157,19 +172,9 @@ MATERIALS = {
         category=("Строительство", "Песок", 1),
         conduct_heat=0.15,
         opacity=1.0,
-        texture=load_texture("Мокрый песок")
+        texture=load_texture("Мокрый песок"),
+        density=2.0
     ),
-
-    "Технический мокрый песок": Material(
-        name="Технический мокрый песок",
-        color=(169, 153, 103),
-        physics_type=(1, 1),
-        category=("Секретное", "?"),
-        conduct_heat=0.15,
-        opacity=1.0,
-        texture=load_texture("Мокрый песок")
-    ),
-
     "Твёрдый песок": Material(
         name="Твёрдый песок",
         color=(219, 203, 153),
@@ -177,7 +182,10 @@ MATERIALS = {
         category=("Строительство", "Песок", 2),
         conduct_heat=0.2,
         opacity=1.0,
-        texture=load_texture("Плотная пыль")
+        texture=load_texture("Плотная пыль"),
+        density=1.9,
+        hardness=8.0,
+        shatter_to='Песок'
     ),
     "Кинетический песок": Material(
         name="Кинетический песок",
@@ -191,7 +199,8 @@ MATERIALS = {
         become_to=(None, None),
         temperature=20,
         heat_capacity=0.8,
-        paintable=False
+        paintable=False,
+        density=1.5
     ),
 
     "Стекло": Material(
@@ -202,7 +211,11 @@ MATERIALS = {
         conduct_heat=0.1,
         opacity=0.6,
         texture=load_texture("Стекло"),
-        paintable=True
+        paintable=True,
+        density=2.5,
+        hardness=3.0,
+        shatter_to='Осколки стекла',
+        shatter_chance=0.25
     ),
     "Осколки стекла": Material(
         name="Осколки стекла",
@@ -211,7 +224,8 @@ MATERIALS = {
         category=("Строительство", "Стекло", 1),
         conduct_heat=0.1,
         opacity=0.85,
-        texture=load_texture("Песок")
+        texture=load_texture("Песок"),
+        density=1.6
     ),
 
     "Инопланетный песок": Material(
@@ -221,7 +235,8 @@ MATERIALS = {
         category=("Строительство", "Песок", 4),
         conduct_heat=0.05,
         opacity=1.0,
-        texture=load_texture("Песок")
+        texture=load_texture("Песок"),
+        density=1.5
     ),
 
     "Скала": Material(
@@ -232,7 +247,10 @@ MATERIALS = {
         conduct_heat=0.05,
         conduct_electricity=0.01,
         opacity=1.0,
-        texture=load_texture("Скала")
+        texture=load_texture("Скала"),
+        density=2.7,
+        hardness=45.0,
+        shatter_to='Каменная крошка'
     ),
     "Каменная крошка": Material(
         name="Каменная крошка",
@@ -242,7 +260,8 @@ MATERIALS = {
         conduct_heat=0.05,
         conduct_electricity=0.01,
         opacity=1.0,
-        texture=load_texture("Мокрый песок")
+        texture=load_texture("Мокрый песок"),
+        density=1.6
     ),
     "Кирпичная стена": Material(
         name="Кирпичная стена",
@@ -253,8 +272,11 @@ MATERIALS = {
         conduct_electricity=0.01,
         opacity=1.0,
         texture=load_texture("Кирпичная стена"),
-        paintable=True
-
+        paintable=True,
+        density=1.9,
+        hardness=25.0,
+        shatter_to='Каменная крошка',
+        shatter_chance=0.6
     ),
     "Алмаз": Material(
         name="Алмаз",
@@ -270,13 +292,14 @@ MATERIALS = {
         freezable=False,
         acid_resistant=True,
         explosive=False,
-        temperature=20
+        temperature=20,
+        density=3.5
     ),
     "Сталь": Material(
         name="Сталь",
         color=(172, 172, 178),
         physics_type=(0, 0),
-        category=("Строительство", "Сталь"),
+        category=("Строительство", "Сталь", 0),
         conduct_heat=0.8,
         conduct_electricity=0.9,
         opacity=1.0,
@@ -287,7 +310,9 @@ MATERIALS = {
         boiling_point=3000,
         acid_resistant=True,
         explosive=False,
-        temperature=20
+        temperature=20,
+        density=7.8,
+        become_to=('Расплавленная сталь', None)
     ),
     "Доски": Material(
         name="Доски",
@@ -305,7 +330,9 @@ MATERIALS = {
         opacity=1.0,
         texture=load_texture("Доски"),
         paintable=True,
-        burn=(0.005, 0.25, 0.25)
+        burn=(0.005, 0.25, 0.25, 0.35),
+        density=0.6,
+        hardness=60.0
     ),
     "Опилки": Material(
         name="Опилки",
@@ -319,7 +346,8 @@ MATERIALS = {
         acid_resistant=False,
         opacity=1.0,
         texture=load_texture("Мокрый песок"),
-        burn=(0.025, 0.15, 0.005)
+        burn=(0.025, 0.15, 0.005, 0.6),
+        density=0.3
     ),
     "Бумага": Material(
         name="Бумага",
@@ -334,7 +362,9 @@ MATERIALS = {
         texture=load_texture("Бумага"),
         paintable=True,
         temperature=20,
-        burn=(0.35, 0.45, 0.45)
+        burn=(0.35, 0.45, 0.45, 0.05),
+        density=0.7,
+        hardness=2.0
     ),
     "Уголь": Material(
         name="Уголь",
@@ -347,10 +377,11 @@ MATERIALS = {
         texture=load_texture("Уголь"),
         flammable=True,
         ignition_point=250,
-        burn=(0.00075, 0.0075, 0.05),
+        burn=(0.00075, 0.0075, 0.05, 0.01),
         temperature=20,
         heat_capacity=1.2,
         acid_resistant=True,
+        density=1.3
     ),
 
     "Вода": Material(
@@ -367,6 +398,8 @@ MATERIALS = {
         become_to=("Лёд", "Пар"),
         temperature=20,
         heat_capacity=4.18,
+        density=1.0,
+        extinguishes=True
     ),
     "Пар": Material(
         name="Пар",
@@ -379,7 +412,8 @@ MATERIALS = {
         opacity=0.7,
         temperature=110,
         texture=load_texture("Пар"),
-        become_to=("Вода", None)
+        become_to=("Вода", None),
+        density=0.001
     ),
     "Лёд": Material(
         name="Лёд",
@@ -394,7 +428,9 @@ MATERIALS = {
         heat_capacity=2.1,
         melting_point=2,
         meltable=True,
-        freezable=False
+        freezable=False,
+        density=0.92,
+        hardness=5.0
     ),
     "Жидкий азот": Material(
         name="Жидкий азот",
@@ -410,7 +446,8 @@ MATERIALS = {
         temperature=-200,
         heat_capacity=2.0,
         meltable=True,
-
+        density=0.8,
+        extinguishes=True
     ),
     "Азот": Material(
         name="Азот",
@@ -425,6 +462,7 @@ MATERIALS = {
         become_to=("Жидкий азот", None),
         temperature=-190,
         heat_capacity=1.0,
+        density=0.001
     ),
     "Натрий": Material(
         name="Натрий",
@@ -437,13 +475,15 @@ MATERIALS = {
         texture=load_texture("Натрий"),
         flammable=True,
         ignition_point=110,
-        burn=(0.0003, 0.0012, 0.3),
+        burn=(0.0003, 0.0012, 0.003, 0.0),
+        density=0.97,
+        impact='burn_out'
     ),
     "Медь": Material(
         name="Медь",
         color=(185, 115, 50),
         physics_type=(0, 0),
-        category=("Строительство", "Медь"),
+        category=("Строительство", "Медь", 0),
         conduct_heat=0.95,
         conduct_electricity=0.95,
         opacity=1.0,
@@ -454,7 +494,9 @@ MATERIALS = {
         boiling_point=2562,
         acid_resistant=False,
         explosive=False,
-        temperature=20
+        temperature=20,
+        density=8.9,
+        become_to=('Расплавленная медь', None)
     ),
     "Творческая граница": Material(
         name="Творческая граница",
@@ -463,17 +505,8 @@ MATERIALS = {
         category=("Секретное", "Творческая граница"),
         conduct_heat=0,
         opacity=1.0,
-        texture=load_texture("Творческая граница")
-    ),
-    "Камень": Material(
-        name="Камень",
-        color=(120, 120, 120),
-        physics_type=(0, 0),
-        category=("Секретное", "Камень"),
-        conduct_heat=0.05,
-        conduct_electricity=0.01,
-        opacity=1.0,
-        texture=load_texture("Скала")
+        texture=load_texture("Творческая граница"),
+        density=100.0
     ),
     "Огонь": Material(
         name="Огонь",
@@ -484,6 +517,7 @@ MATERIALS = {
         opacity=1,
         temperature=600,
         heat_capacity=1.0,
+        density=0.001
     ),
 
     "Гиперогонь": Material(
@@ -495,6 +529,7 @@ MATERIALS = {
         opacity=1,
         temperature=2000,
         heat_capacity=1.0,
+        density=0.001
     ),
     "Плитка": Material(
         name="Плитка",
@@ -511,7 +546,11 @@ MATERIALS = {
         category=("Строительство", "Плитка", 0),
         reacts_with={},
         become_to=(),
-        paintable=True
+        paintable=True,
+        density=2.4,
+        hardness=16.0,
+        shatter_to='Каменная крошка',
+        shatter_chance=0.5
     ),
 
     "Мелкая плитка": Material(
@@ -529,7 +568,11 @@ MATERIALS = {
         category=("Строительство", "Плитка", 1),
         reacts_with={},
         become_to=(),
-        paintable=True
+        paintable=True,
+        density=2.4,
+        hardness=14.0,
+        shatter_to='Каменная крошка',
+        shatter_chance=0.5
     ),
     "Аэрогель": Material(
         name="Аэрогель",
@@ -542,5 +585,48 @@ MATERIALS = {
         texture=load_texture("Аэрогель"),
         temperature=20,
         acid_resistant=True,
+        density=0.1,
+        hardness=1.0
+    ),
+    "Пепел": Material(
+        name="Пепел",
+        color=(95, 95, 102),
+        physics_type=(1, 0),
+        category=("Строительство", "Пепел"),
+        conduct_heat=0.05,
+        heat_capacity=0.8,
+        opacity=1.0,
+        texture=load_texture("Мокрый песок"),
+        density=0.5
+    ),
+    "Расплавленная сталь": Material(
+        name="Расплавленная сталь",
+        color=(255, 150, 50),
+        physics_type=(2, 0),
+        category=("Строительство", "Сталь", 1),
+        conduct_heat=0.8,
+        conduct_electricity=0.9,
+        opacity=1.0,
+        glow=True,
+        temperature=1600,
+        freezing_point=1450,
+        become_to=("Сталь", None),
+        density=7.0,
+        viscosity=0.55
+    ),
+    "Расплавленная медь": Material(
+        name="Расплавленная медь",
+        color=(255, 125, 25),
+        physics_type=(2, 0),
+        category=("Строительство", "Медь", 1),
+        conduct_heat=0.95,
+        conduct_electricity=0.95,
+        opacity=1.0,
+        glow=True,
+        temperature=1200,
+        freezing_point=1050,
+        become_to=("Медь", None),
+        density=8.0,
+        viscosity=0.5
     ),
 }

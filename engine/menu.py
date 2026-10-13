@@ -14,7 +14,6 @@ def _stable_seed(a, b):
 
 
 def available_tools(selected_material):
-    """Инструменты в меню: «Выбор цвета» есть только у красящихся материалов."""
     tools = ["Рисование", "Объекты"]
     if selected_material in MATERIALS and MATERIALS[selected_material].paintable:
         tools.append("Выбор цвета")
@@ -202,7 +201,7 @@ def draw_menus(menu_surface, selected_material,
         selected = selected_subtool
         draw_branches(
             menu_surface,
-            [selected_tool], sub_items, [],
+            tools, sub_items, [],
             scroll_tool, scroll_subtool, 0,
             selected_tool, selected,
             250, 190, 210,
@@ -213,7 +212,7 @@ def draw_menus(menu_surface, selected_material,
         sub_items = TOOL_SUBTYPES["Выбор цвета"]
         draw_branches(
             menu_surface,
-            ["Выбор цвета"], sub_items, [],
+            tools, sub_items, [],
             scroll_tool, scroll_subtool, 0,
             "Выбор цвета", selected_color,
             250, 190, 210,
@@ -246,8 +245,6 @@ def draw_branches(surface,
 
             if valid:
                 child_y = get_center(ci, scroll_child)
-                if mode == "color":
-                    parent_y = 100
                 color = branch_color(_stable_seed(parent, child))
                 draw_curve(
                     surface,

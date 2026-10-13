@@ -1,7 +1,8 @@
-aaaba
-aabba
-abbba
+сссba
+ссbba
+сbbba
 bbbba
 aaaaa
-a = fixed(0)
+a = fixed(-10)
 b = fixed(+20)
+с = fixed(0)

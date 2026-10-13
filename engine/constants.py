@@ -1,53 +1,30 @@
-BORDER_SIZE = 2
-GAME_WIDTH = 960
-GAME_HEIGHT = 480
-COLUMN_WIDTH = 100
+import json
+import os
+
+_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "constants.json"))
+
+with open(_PATH, "r", encoding="utf-8") as _file:
+    _data = json.load(_file)
+
+BORDER_SIZE = _data["BORDER_SIZE"]
+GAME_WIDTH = _data["GAME_WIDTH"]
+GAME_HEIGHT = _data["GAME_HEIGHT"]
+COLUMN_WIDTH = _data["COLUMN_WIDTH"]
+PIXEL_SIZE = _data["PIXEL_SIZE"]
+FPS = _data["FPS"]
+PHYSICS_TPS = _data["PHYSICS_TPS"]
+
 MENU_WIDTH = COLUMN_WIDTH * 3
 WINDOW_WIDTH = GAME_WIDTH + MENU_WIDTH
 WINDOW_HEIGHT = GAME_HEIGHT
-PIXEL_SIZE = 6
-FPS = 100
-PHYSICS_TPS = 30
-painted_colors = [
-    ("Красный", (255, 0, 0)),
-    ("Красно-оранжевый", (255, 75, 0)),
-    ("Оранжевый", (255, 150, 0)),
-    ("Оранжево-жёлтый", (255, 200, 0)),
-    ("Жёлтый", (255, 255, 0)),
-    ("Салатовый", (200, 255, 0)),
-    ("Зелёный", (100, 255, 0)),
-    ("Изумрудный", (0, 255, 75)),
-    ("Бирюзовый", (0, 255, 150)),
-    ("Морской", (0, 255, 200)),
-    ("Голубой", (0, 255, 255)),
-    ("Небесно-голубой", (0, 225, 255)),
-    ("Лазурный", (0, 200, 255)),
-    ("Светло-синий", (0, 150, 255)),
-    ("Синий", (0, 100, 255)),
-    ("Истинный синий", (0, 50, 255)),
-    ("Черноморский-синий", (0, 0, 255)),
-    ("Индиго", (100, 0, 255)),
-    ("Фиолетовый", (150, 0, 255)),
-    ("Пурпурный", (200, 0, 255)),
-    ("Розовый", (255, 0, 150)),
-    ("Алый", (255, 0, 100)),
-    ("Белый", (255, 255, 255)),
-    ("Светло-серый", (185, 185, 180)),
-    ("Серый", (150, 150, 150)),
-    ("Тёмно-серый", (100, 100, 100)),
-    ("Чёрный", (50, 50, 55)),
-    ("Тёмно-коричневый", (100, 50, 25)),
-    ("Коричневый", (150, 100, 50)),
-    ("Светло-коричневый", (200, 150, 100)),
-]
 
-BRUSH_SUBTOOLS = ["Круглая кисть", "Квадратная кисть", "Случайная кисть", "Карандаш", "Ластик"]
-OBJECT_SUBTOOLS = ["Рамка", "Заливка"]
+painted_colors = [(name, tuple(color)) for name, color in _data["painted_colors"]]
+BRUSH_SUBTOOLS = list(_data["BRUSH_SUBTOOLS"])
+OBJECT_SUBTOOLS = list(_data["OBJECT_SUBTOOLS"])
+TOOLS = list(_data["TOOLS"])
 
 TOOL_SUBTYPES = {
     "Рисование": BRUSH_SUBTOOLS,
     "Объекты": OBJECT_SUBTOOLS,
     "Выбор цвета": painted_colors
 }
-
-TOOLS = ["Рисование", "Объекты", "Выбор цвета"]

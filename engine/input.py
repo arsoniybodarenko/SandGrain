@@ -3,7 +3,7 @@ import pygame
 from .constants import *
 from . import physics
 from .materials import MATERIALS
-from .bodies import body_at, spawn_blob
+from .bodies import grab_at, spawn_blob
 from .menu import get_hovered_in_column, available_tools
 
 
@@ -182,9 +182,7 @@ def handle_event(event, state, objects, world, take_screenshot):
     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
         mx, my = pygame.mouse.get_pos()
         if mx < GAME_WIDTH:
-            body = body_at(world, mx // PIXEL_SIZE, my // PIXEL_SIZE)
-            if body is not None:
-                body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE)
+            grab_at(world, mx / PIXEL_SIZE, my / PIXEL_SIZE)
 
     return (
         mouse_down, brush_radius, erase,

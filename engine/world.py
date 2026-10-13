@@ -52,35 +52,36 @@ class World:
 
         self.init_borders()
 
+    def cell_rgba(self, x, y, temperature=False):
+        p = self.grid[y][x]
+        if p is None:
+            return _CLEAR
+        mat = p.material
+        if temperature and p.temperature is not None and not self.is_border(x, y):
+            r, g, b = temperature_to_color(p.temperature)
+            return (r, g, b, 255)
+        if p.baked is not None:
+            return p.baked
+        if mat is not None and mat.texture_map:
+            try:
+                base = mat.texture_map[(x, y)]
+            except KeyError:
+                base = (*mat.color, 255)
+            r, g, b, a = base
+            if mat.paintable and p.color != mat.color:
+                tr, tg, tb = p.color
+                r = r * tr // 255
+                g = g * tg // 255
+                b = b * tb // 255
+            return (r, g, b, a)
+        col = p.color
+        alpha = int(mat.opacity * 255) if mat is not None else 255
+        return (col[0], col[1], col[2], alpha)
+
     def draw_cell(self, x, y):
         if not (0 <= x < self.width and 0 <= y < self.height):
             return
-
-        p = self.grid[y][x]
-        if p is None:
-            rgba = _CLEAR
-        else:
-            mat = p.material
-            if self.temperature_mode and p.temperature is not None and not self.is_border(x, y):
-                r, g, b = temperature_to_color(p.temperature)
-                rgba = (r, g, b, 255)
-            elif mat is not None and mat.texture_map:
-                try:
-                    base = mat.texture_map[(x, y)]
-                except KeyError:
-                    base = (*mat.color, 255)
-                r, g, b, a = base
-                if mat.paintable and p.color != mat.color:
-                    tr, tg, tb = p.color
-                    r = r * tr // 255
-                    g = g * tg // 255
-                    b = b * tb // 255
-                rgba = (r, g, b, a)
-            else:
-                col = p.color
-                alpha = int(mat.opacity * 255) if mat is not None else 255
-                rgba = (col[0], col[1], col[2], alpha)
-
+        rgba = self.cell_rgba(x, y, self.temperature_mode)
         self.surface.fill(rgba, (x * PIXEL_SIZE, y * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE))
 
     def redraw_all(self):

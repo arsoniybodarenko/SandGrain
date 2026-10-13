@@ -2,6 +2,7 @@ import math
 import random
 from engine.materials import MATERIALS
 from engine.world import *
+from engine import damage
 
 physics_rotation = 0.0
 
@@ -163,6 +164,12 @@ def ballistic_step(world, x, y):
             cx, cy = tx, ty
             continue
 
+        impact = p.material.impact if p.material is not None else None
+        handler = _IMPACT_HANDLERS.get(impact) if impact else None
+        if handler is not None:
+            handler(world, cx, cy, p)
+            return
+
         block_x = tx != cx and not _passable(grid, W, H, tx, cy)
         block_y = ty != cy and not _passable(grid, W, H, cx, ty)
         if block_x == block_y:
@@ -181,26 +188,22 @@ def ballistic_step(world, x, y):
         _keep_awake(world, cx, cy)
 
 
-def _shockwave(world, x, y, radius, strength):
+
+
+
+def _impact_burn_out(world, x, y, particle):
     grid = world.grid
     W = world.width
     H = world.height
-    for dy in range(-radius, radius + 1):
-        for dx in range(-radius, radius + 1):
-            if dx == 0 and dy == 0:
-                continue
-            nx, ny = x + dx, y + dy
-            if nx < 0 or nx >= W or ny < 0 or ny >= H:
-                continue
-            q = grid[ny][nx]
-            if q is None or q.body is not None or q.vx or q.vy or q.material is None:
-                continue
-            if q.material.physics_type[0] not in (1, 2):
-                continue
-            dist = math.hypot(dx, dy)
-            impulse = strength / dist
-            q.vx += dx / dist * impulse + random.uniform(-0.4, 0.4)
-            q.vy += dy / dist * impulse - 0.6 + random.uniform(-0.4, 0.4)
+    free = [(x + dx, y + dy) for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1))
+            if _is_none(grid, W, H, x + dx, y + dy)]
+    world.set(x, y, None)
+    if free:
+        fx, fy = random.choice(free)
+        world.set(fx, fy, Particle("Огонь"))
+
+
+_IMPACT_HANDLERS = {"burn_out": _impact_burn_out}
 
 
 def burning_water_reaction(world, x, y, nx, ny):
@@ -212,6 +215,7 @@ def burning_water_reaction(world, x, y, nx, ny):
     if random.random() > 0.5:
         return
 
+    gx, gy = get_gravity_vector(physics_rotation)
     world.set(nx, ny, Particle("Пар", temperature=130))
 
     if sodium.body is not None:
@@ -221,8 +225,8 @@ def burning_water_reaction(world, x, y, nx, ny):
 
     angle = random.uniform(0.0, 2.0 * math.pi)
     speed = random.uniform(1.4, 3.0)
-    sodium.vx = math.cos(angle) * speed
-    sodium.vy = math.sin(angle) * speed - 1.0
+    sodium.vx = math.cos(angle) * speed - gx
+    sodium.vy = math.sin(angle) * speed - gy
 
     free = [(x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)
             if (dx or dy) and _is_none(grid, world.width, world.height, x + dx, y + dy)]
@@ -230,25 +234,37 @@ def burning_water_reaction(world, x, y, nx, ny):
         fx, fy = random.choice(free)
         world.set(fx, fy, Particle("Огонь"))
 
-    _shockwave(world, x, y, 2, 1.4)
+    damage.explode(world, x, y, 3, 5.0, up=(-gx, -gy))
+
 
 def handle_burning(world, x, y):
-    particle = world.get(x, y)
+    grid = world.grid
+    particle = grid[y][x]
     if not particle or not particle.material:
         return
 
     mat = particle.material
-
     if not mat.flammable:
         return
 
-    if hasattr(particle, "temperature") and hasattr(mat, "ignition_point"):
-        if particle.temperature >= mat.ignition_point:
-            particle.burning = True
+    W = world.width
+    H = world.height
+    neighbors = ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+
+    for nx, ny in neighbors:
+        n = _cell(grid, W, H, nx, ny)
+        if n is not None and n.material is not None and n.material.extinguishes:
+            particle.burning = False
+            if mat.ignition_point is not None and particle.temperature >= mat.ignition_point:
+                particle.temperature = mat.ignition_point - 5
+            return
+
+    if mat.ignition_point is not None and particle.temperature >= mat.ignition_point:
+        particle.burning = True
 
     if not particle.burning:
-        for nx, ny in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]:
-            neighbor = world.get(nx, ny)
+        for nx, ny in neighbors:
+            neighbor = _cell(grid, W, H, nx, ny)
             if neighbor and neighbor.material and neighbor.material.name in ("Огонь", "Гиперогонь"):
                 particle.burning = True
                 break
@@ -258,29 +274,26 @@ def handle_burning(world, x, y):
 
     _keep_awake(world, x, y)
 
-    chance_self, chance_spread, chance_air = (mat.burn + (0, 0, 0))[:3]
+    chance_self, chance_spread, chance_air, chance_ash = (mat.burn + (0, 0, 0, 0))[:4]
 
     if random.random() < chance_self:
-        world.set(x, y, Particle("Огонь"))
+        if chance_ash and random.random() < chance_ash:
+            world.set(x, y, Particle("Пепел", temperature=particle.temperature))
+        else:
+            world.set(x, y, Particle("Огонь"))
         return
 
     if random.random() < chance_spread:
-        neighbors = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
         nx, ny = random.choice(neighbors)
         if world.in_bounds(nx, ny):
-            target = world.get(nx, ny)
+            target = grid[ny][nx]
             if target is None:
                 world.set(nx, ny, Particle("Огонь"))
             elif target.material and target.material.flammable:
                 target.burning = True
 
     if random.random() < chance_air:
-        air_cells = []
-        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            nx, ny = x + dx, y + dy
-            if world.in_bounds(nx, ny) and world.get(nx, ny) is None:
-                air_cells.append((nx, ny))
-
+        air_cells = [(nx, ny) for nx, ny in neighbors if _is_none(grid, W, H, nx, ny)]
         if air_cells:
             nx, ny = random.choice(air_cells)
             world.set(nx, ny, Particle("Огонь"))
@@ -384,30 +397,43 @@ def tick_physics(world):
         _last_rotation = physics_rotation
         world.wake_all()
 
-    if physics_rotation == 180:
-        y_range = range(world.height)
-    else:
-        y_range = reversed(range(world.height))
-
+    gdx, gdy = get_gravity_vector(physics_rotation)
     grid = world.grid
     width = world.width
+    height = world.height
     awake = world.chunk_awake
     chunks_x = world.chunks_x
-    for y in y_range:
-        row = grid[y]
-        chunk_row = (y // CHUNK_SIZE) * chunks_x
-        for cx in range(chunks_x):
-            if awake[chunk_row + cx] <= 0:
-                continue
-            x0 = cx * CHUNK_SIZE
-            x1 = x0 + CHUNK_SIZE
-            if x1 > width:
-                x1 = width
-            for x in range(x0, x1):
-                if row[x] is None:
+
+    if gdx == 0:
+        y_range = range(height) if gdy < 0 else reversed(range(height))
+        for y in y_range:
+            row = grid[y]
+            chunk_row = (y // CHUNK_SIZE) * chunks_x
+            for cx in range(chunks_x):
+                if awake[chunk_row + cx] <= 0:
                     continue
-                spread_temperature(world, x, y)
-                update_physics(world, x, y)
+                x0 = cx * CHUNK_SIZE
+                x1 = min(width, x0 + CHUNK_SIZE)
+                for x in range(x0, x1):
+                    if row[x] is None:
+                        continue
+                    spread_temperature(world, x, y)
+                    update_physics(world, x, y)
+    else:
+        x_range = reversed(range(width)) if gdx > 0 else range(width)
+        chunks_y = world.chunks_y
+        for x in x_range:
+            cx = x // CHUNK_SIZE
+            for cy in range(chunks_y):
+                if awake[cy * chunks_x + cx] <= 0:
+                    continue
+                y0 = cy * CHUNK_SIZE
+                y1 = min(height, y0 + CHUNK_SIZE)
+                for y in range(y0, y1):
+                    if grid[y][x] is None:
+                        continue
+                    spread_temperature(world, x, y)
+                    update_physics(world, x, y)
 
     awake = world.chunk_awake
     for i in range(len(awake)):
@@ -465,6 +491,11 @@ def spread_temperature(world, x, y):
         t2 = n.temperature
         diff = t1 - t2
         if -0.1 < diff < 0.1:
+            continue
+
+        pt = mat.physics_type[0]
+        nt = nmat.physics_type[0]
+        if (pt == 4 and (nt == 2 or nt == 3)) or (nt == 4 and (pt == 2 or pt == 3)):
             continue
 
         c2 = nmat.heat_capacity
@@ -774,19 +805,18 @@ def alien_powder_physics(world, x, y):
         if _is_none(grid, W, H, nx, ny):
             world.move_to(x, y, nx, ny)
 
-_LIQUID_DOWN = ((-1, 1), (0, 1), (1, 1))
-_LIQUID_SIDE = (-1, 1, 2, -2, -3, 3)
-
-_LIQUID_DOWN = ((-1, 1), (0, 1), (1, 1))
+_LIQUID_DOWN = (1, 0, -1)
 _LIQUID_SIDE = (-1, 1, 2, -2, -3, 3)
 
 
-def _hop_clear(grid, W, y, x, bdx):
-    step = 1 if bdx > 0 else -1
-    for cx in range(x + step, x + bdx, step):
-        if cx < 0 or cx >= W:
+def _hop_clear(grid, W, H, x, y, hx, hy, b):
+    step = 1 if b > 0 else -1
+    for i in range(1, abs(b)):
+        cx = x + hx * i * step
+        cy = y + hy * i * step
+        if cx < 0 or cx >= W or cy < 0 or cy >= H:
             return False
-        t = grid[y][cx]
+        t = grid[cy][cx]
         if t is not None and (t.body is not None or t.material is None
                               or t.material.physics_type[0] in (0, 1)):
             return False
@@ -801,24 +831,37 @@ def liquid_physics(world, x, y):
     W = world.width
     H = world.height
 
-    adx, ady = random.choice(_LIQUID_DOWN)
-    nx, ny = x + adx, y + ady
+    viscosity = particle.material.viscosity
+    if viscosity and random.random() < viscosity:
+        _keep_awake(world, x, y)
+        return
+
+    gx, gy = get_gravity_vector(physics_rotation)
+    sx, sy = -gy, gx
+    hx, hy = gy, -gx
+
+    k = random.choice(_LIQUID_DOWN)
+    nx = x + gx + sx * k
+    ny = y + gy + sy * k
     if 0 <= nx < W and 0 <= ny < H and grid[ny][nx] is None:
         world.move_to(x, y, nx, ny)
         return
 
-    bdx = random.choice(_LIQUID_SIDE)
-    nx = x + bdx
-    if 0 <= nx < W and grid[y][nx] is None and (abs(bdx) == 1 or _hop_clear(grid, W, y, x, bdx)):
-        world.move_to(x, y, nx, y)
+    b = random.choice(_LIQUID_SIDE)
+    nx = x + hx * b
+    ny = y + hy * b
+    if (0 <= nx < W and 0 <= ny < H and grid[ny][nx] is None
+            and (abs(b) == 1 or _hop_clear(grid, W, H, x, y, hx, hy, b))):
+        world.move_to(x, y, nx, ny)
         return
 
-    for cdx, cdy in _LIQUID_DOWN:
-        if _is_none(grid, W, H, x + cdx, y + cdy):
+    for k in _LIQUID_DOWN:
+        if _is_none(grid, W, H, x + gx + sx * k, y + gy + sy * k):
             _keep_awake(world, x, y)
             return
-    for cdx in _LIQUID_SIDE:
-        if _is_none(grid, W, H, x + cdx, y) and (abs(cdx) == 1 or _hop_clear(grid, W, y, x, cdx)):
+    for b in _LIQUID_SIDE:
+        if (_is_none(grid, W, H, x + hx * b, y + hy * b)
+                and (abs(b) == 1 or _hop_clear(grid, W, H, x, y, hx, hy, b))):
             _keep_awake(world, x, y)
             return
 
@@ -842,27 +885,34 @@ def gas_physics(world, x, y):
             particle.temperature += diff * 0.004
             _keep_awake(world, x, y)
 
-    for dy in (1, 2):
-        ny = y - dy
-        if ny < 0:
+    gx, gy = get_gravity_vector(physics_rotation)
+    ux, uy = -gx, -gy
+    hx, hy = gy, -gx
+
+    for d in (1, 2):
+        bx = x + ux * d
+        by = y + uy * d
+        if bx < 0 or bx >= W or by < 0 or by >= H:
             continue
 
-        dx = 0
+        jitter = 0
         if random.random() < 0.1:
-            dx = random.choice([-1, 1])
+            jitter = random.choice([-1, 1])
 
-        nx = x + dx
+        nx = bx + hx * jitter
+        ny = by + hy * jitter
 
         if _free(grid, W, H, nx, ny):
             world.move_to(x, y, nx, ny)
             return
 
-    for dy in (1, 2):
-        ny = y - dy
-        if ny < 0:
+    for d in (1, 2):
+        bx = x + ux * d
+        by = y + uy * d
+        if bx < 0 or bx >= W or by < 0 or by >= H:
             continue
-        for dx in (-1, 0, 1):
-            if _free(grid, W, H, x + dx, ny):
+        for jitter in (-1, 0, 1):
+            if _free(grid, W, H, bx + hx * jitter, by + hy * jitter):
                 _keep_awake(world, x, y)
                 return
 
@@ -872,6 +922,15 @@ def update_fire_physics(world, x, y):
     p = grid[y][x]
     if not p or not p.material:
         return
+
+    W = world.width
+    H = world.height
+
+    for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+        n = _cell(grid, W, H, nx, ny)
+        if n is not None and n.material is not None and n.material.extinguishes:
+            world.set(x, y, None)
+            return
 
     _keep_awake(world, x, y)
 
@@ -905,18 +964,22 @@ def update_fire_physics(world, x, y):
         world.draw_cell(x, y)
 
     if p.age < lifespan * 0.8:
-        width = world.width
-        for dy in (1, 2):
-            ny = y - dy
-            if ny < 0:
+        gx, gy = get_gravity_vector(physics_rotation)
+        ux, uy = -gx, -gy
+        hx, hy = gy, -gx
+        for d in (1, 2):
+            bx = x + ux * d
+            by = y + uy * d
+            if bx < 0 or bx >= W or by < 0 or by >= H:
                 continue
 
-            dx = 0
+            jitter = 0
             if random.random() < 0.1:
-                dx = random.choice([-1, 1])
+                jitter = random.choice([-1, 1])
 
-            nx = x + dx
-            if 0 <= nx < width and grid[ny][nx] is None:
+            nx = bx + hx * jitter
+            ny = by + hy * jitter
+            if _is_none(grid, W, H, nx, ny):
                 world.move_to(x, y, nx, ny)
                 return
 

@@ -1,20 +1,32 @@
 import math
 from collections import deque
 
+from . import damage
 from .physics import physics as _phys
 
-MAX_BODY_CELLS = 1024
+MAX_BODY_CELLS = 2048
 GRAVITY = 0.12
-MAX_SPEED = 3.0
+MAX_SPEED = 6.0
 REST_TICKS = 6
 SUBSTEP = 0.5
 MAX_OMEGA = 0.12
+MAX_OMEGA_GRAB = 0.3
 TIP_ACCEL = 0.012
+SUPPORT_TOLERANCE = 0.25
+JAM_TICKS = 12
+IMPACT_MIN_SPEED = 0.45
+GRAB_STIFFNESS = 0.3
+GRAB_MAX_SPEED = 6.0
+GRAB_STRENGTH = 0.6
 
 _RELOCATE_OFFSETS = sorted(
     ((dx, dy) for dx in range(-4, 5) for dy in range(-4, 5) if dx or dy),
     key=lambda d: d[0] * d[0] + d[1] * d[1],
 )
+
+
+def _density(p):
+    return p.material.density if p.material is not None else 1.0
 
 
 class Body:
@@ -33,17 +45,33 @@ class Body:
         self.resting = False
         self.bbox = (0, 0, 0, 0)
         self.grab = None
+        self.grab_local = None
         self.dead = False
-        self.liquid_fraction = 0.0
+        self.jam = 0
+        self.mass = 1.0
+        self.inertia = 1.0
+        self.radius = 1.0
         for p in cells.values():
             p.body = self
-        self._update_radius()
+        self._update_shape()
 
-    def _update_radius(self):
+    def _update_shape(self):
         comx, comy = self.com
-        self.radius = 1.0 + max(
-            (math.hypot(i + 0.5 - comx, j + 0.5 - comy) for (i, j) in self.cells), default=0.0
-        )
+        mass = 0.0
+        inertia = 0.0
+        far = 0.0
+        for (i, j), p in self.cells.items():
+            d = _density(p)
+            rx = i + 0.5 - comx
+            ry = j + 0.5 - comy
+            r2 = rx * rx + ry * ry
+            mass += d
+            inertia += d * (r2 + 1.0 / 6.0)
+            if r2 > far:
+                far = r2
+        self.mass = max(mass, 1e-6)
+        self.inertia = max(inertia, 1e-6)
+        self.radius = 1.0 + math.sqrt(far)
 
     def _pose_cover(self, px, py, th):
         comx, comy = self.com
@@ -69,6 +97,37 @@ class Body:
                 key = (floor(comx + wx * c + wy * s), floor(comy - wx * s + wy * c))
                 if key in cells:
                     cover[(X, Y)] = key
+
+        centers = {}
+        for key in cells:
+            rx = key[0] + 0.5 - comx
+            ry = key[1] + 0.5 - comy
+            wx = px + rx * c - ry * s
+            wy = py + rx * s + ry * c
+            centers[key] = (wx, wy)
+            fc = (floor(wx), floor(wy))
+            if fc not in cover:
+                cover[fc] = key
+
+        present = set(cover.values())
+        if len(present) != len(cells):
+            for key, (wx, wy) in centers.items():
+                if key in present:
+                    continue
+                bx = floor(wx)
+                by = floor(wy)
+                best = None
+                best_d = 1e9
+                for ddx in (-1, 0, 1):
+                    for ddy in (-1, 0, 1):
+                        cell = (bx + ddx, by + ddy)
+                        if cell in cover:
+                            continue
+                        d = (cell[0] + 0.5 - wx) ** 2 + (cell[1] + 0.5 - wy) ** 2
+                        if d < best_d:
+                            best, best_d = cell, d
+                if best is not None:
+                    cover[best] = key
         return cover
 
     def _collides(self, cover):
@@ -118,12 +177,9 @@ class Body:
             world.set(X, Y, p)
         self.cover = new_cover
 
-        liquids = 0
         if displaced:
             vacated = [c for c in old if c not in new_cover and grid[c[1]][c[0]] is None]
             for X, Y, particle in displaced:
-                if particle.material is not None and particle.material.physics_type[0] == 2:
-                    liquids += 1
                 if vacated:
                     j = min(range(len(vacated)),
                             key=lambda k: (vacated[k][0] - X) ** 2 + (vacated[k][1] - Y) ** 2)
@@ -131,7 +187,6 @@ class Body:
                     world.set(nx, ny, particle)
                 else:
                     self._relocate(X, Y, particle)
-        self.liquid_fraction = liquids / max(1, len(new_cover))
 
     def _relocate(self, X, Y, particle):
         world = self.world
@@ -154,6 +209,7 @@ class Body:
             return
         del self.cells[key]
         particle.body = None
+        particle.baked = None
         self.cover = {c: k for c, k in self.cover.items() if k != key}
         self._after_cells_changed()
 
@@ -172,7 +228,9 @@ class Body:
             if key in lost and grid[Y][X] is cells[key]:
                 self.world.set(X, Y, None)
         for key in lost:
-            cells.pop(key).body = None
+            p = cells.pop(key)
+            p.body = None
+            p.baked = None
         self.cover = {c: k for c, k in self.cover.items() if k not in lost}
         self._after_cells_changed()
 
@@ -195,8 +253,15 @@ class Body:
         return comps
 
     def _com_of(self, keys):
-        n = len(keys)
-        return (sum(i + 0.5 for i, _ in keys) / n, sum(j + 0.5 for _, j in keys) / n)
+        total = 0.0
+        sx = 0.0
+        sy = 0.0
+        for key in keys:
+            d = _density(self.cells[key])
+            total += d
+            sx += d * (key[0] + 0.5)
+            sy += d * (key[1] + 0.5)
+        return (sx / total, sy / total)
 
     def _world_offset(self, new_com):
         c = math.cos(self.theta)
@@ -229,9 +294,11 @@ class Body:
         self.vy += self.omega * (npx - self.px)
         self.com = new_com
         self.px, self.py = npx, npy
-        self._update_radius()
+        self._update_shape()
         self.resting = False
         self.rest_ticks = 0
+        if self.grab is not None:
+            self.grab_local = None
 
     def _die(self):
         self.dead = True
@@ -241,14 +308,36 @@ class Body:
     def dissolve(self):
         for p in self.cells.values():
             p.body = None
+            p.baked = None
         self.cells = {}
         self._die()
+
+    def apply_impulse(self, fx, fy, wx, wy):
+        self.vx += fx / self.mass
+        self.vy += fy / self.mass
+        self.omega += ((wx - self.px) * fy - (wy - self.py) * fx) / self.inertia
+        self.resting = False
+        self.rest_ticks = 0
+
+    def begin_grab(self, fx, fy):
+        rx = fx - self.px
+        ry = fy - self.py
+        c = math.cos(self.theta)
+        s = math.sin(self.theta)
+        self.grab_local = (rx * c + ry * s, -rx * s + ry * c)
+        self.grab = (fx, fy)
+        self.resting = False
+        self.rest_ticks = 0
+
+    def end_grab(self):
+        self.grab = None
+        self.grab_local = None
 
     def update(self):
         world = self.world
         if self.resting:
             x0, y0, x1, y1 = self.bbox
-            if not world.region_awake(x0, y0, x1, y1) and self.grab is None:
+            if self.grab is None and not world.region_awake(x0, y0, x1, y1):
                 return
             self.resting = False
             self.rest_ticks = 0
@@ -294,30 +383,108 @@ class Body:
         self.px, self.py, self.theta = npx, npy, nth
         return cover
 
+    def _buoyancy(self, gdx, gdy):
+        grid = self.world.grid
+        W = self.world.width
+        H = self.world.height
+        columns = {}
+        for (X, Y) in self.cover:
+            u = X * gdy - Y * gdx
+            h = -(X * gdx + Y * gdy)
+            columns.setdefault(u, []).append((h, X, Y))
+
+        fx = 0.0
+        fy = 0.0
+        tau = 0.0
+        count = 0
+        for cells in columns.values():
+            cells.sort(reverse=True)
+            submerged = False
+            density = 0.0
+            prev_h = None
+            for h, X, Y in cells:
+                if prev_h is None or prev_h - h != 1:
+                    submerged = False
+                for nx, ny in ((X + 1, Y), (X - 1, Y), (X, Y + 1), (X, Y - 1)):
+                    if 0 <= nx < W and 0 <= ny < H:
+                        t = grid[ny][nx]
+                        if (t is not None and t.body is None and t.material is not None
+                                and t.material.physics_type[0] == 2):
+                            submerged = True
+                            density = t.material.density
+                            break
+                if submerged:
+                    count += 1
+                    f = GRAVITY * density
+                    fx -= gdx * f
+                    fy -= gdy * f
+                    rx = X + 0.5 - self.px
+                    ry = Y + 0.5 - self.py
+                    tau += rx * (-gdy * f) - ry * (-gdx * f)
+                prev_h = h
+
+        if count == 0:
+            return 0.0
+        self.vx += fx / self.mass
+        self.vy += fy / self.mass
+        self.omega += tau / self.inertia
+        return count / max(1, len(self.cover))
+
+    def _grab_impulse(self):
+        tx, ty = self.grab
+        lx, ly = self.grab_local if self.grab_local is not None else (0.0, 0.0)
+        c = math.cos(self.theta)
+        s = math.sin(self.theta)
+        rx = lx * c - ly * s
+        ry = lx * s + ly * c
+        dx = tx - (self.px + rx)
+        dy = ty - (self.py + ry)
+        vdx = max(-GRAB_MAX_SPEED, min(GRAB_MAX_SPEED, dx * GRAB_STIFFNESS))
+        vdy = max(-GRAB_MAX_SPEED, min(GRAB_MAX_SPEED, dy * GRAB_STIFFNESS))
+        ex = vdx - (self.vx - self.omega * ry)
+        ey = vdy - (self.vy + self.omega * rx)
+        im = 1.0 / self.mass
+        ii = 1.0 / self.inertia
+        k11 = im + ry * ry * ii
+        k12 = -rx * ry * ii
+        k22 = im + rx * rx * ii
+        det = k11 * k22 - k12 * k12
+        if det < 1e-12:
+            return
+        jx = (k22 * ex - k12 * ey) / det * GRAB_STRENGTH
+        jy = (-k12 * ex + k11 * ey) / det * GRAB_STRENGTH
+        self.vx += jx * im
+        self.vy += jy * im
+        self.omega += (rx * jy - ry * jx) * ii
+
     def _dynamics(self):
         gdx, gdy = self._gravity()
         start_pose = (self.px, self.py, self.theta)
         cover = self.cover
+        grabbed = self.grab is not None
 
-        if self.grab is not None:
-            tx, ty = self.grab
-            self.vx = max(-2.5, min(2.5, (tx - self.px) * 0.25))
-            self.vy = max(-2.5, min(2.5, (ty - self.py) * 0.25))
-            self.omega *= 0.9
+        self.vx += gdx * GRAVITY
+        self.vy += gdy * GRAVITY
+        frac = self._buoyancy(gdx, gdy)
+        if frac > 0.0:
+            drag = 1.0 - 0.12 * frac
+            self.vx *= drag
+            self.vy *= drag
+            self.omega *= 1.0 - 0.2 * frac
+        if grabbed:
+            self._grab_impulse()
+            limit = MAX_OMEGA_GRAB
         else:
-            self.vx += gdx * GRAVITY
-            self.vy += gdy * GRAVITY
-            if self.liquid_fraction > 0.0:  # сопротивление жидкости
-                drag = 1.0 - 0.3 * min(1.0, self.liquid_fraction * 4.0)
-                self.vx *= drag
-                self.vy *= drag
-                self.omega *= drag
+            limit = MAX_OMEGA
+        self.omega = max(-limit, min(limit, self.omega))
 
         speed = math.hypot(self.vx, self.vy)
         if speed > MAX_SPEED:
             self.vx *= MAX_SPEED / speed
             self.vy *= MAX_SPEED / speed
 
+        impact_speed = 0.0
+        blocked = []
         steps = max(1, int(math.ceil(max(abs(self.vx), abs(self.vy)) / SUBSTEP)))
         dx = self.vx / steps
         dy = self.vy / steps
@@ -342,9 +509,13 @@ class Body:
                     cover = c
                     ok_y = True
             if dx and not ok_x:
+                impact_speed = max(impact_speed, abs(self.vx))
+                blocked.append((1 if self.vx > 0 else -1, 0))
                 self.vx = 0.0
                 dx = 0.0
             if dy and not ok_y:
+                impact_speed = max(impact_speed, abs(self.vy))
+                blocked.append((0, 1 if self.vy > 0 else -1))
                 self.vy = 0.0
                 dy = 0.0
             if not ok_x and not ok_y:
@@ -352,7 +523,9 @@ class Body:
 
         contacts = self._contacts(cover, gdx, gdy)
         stable = False
-        if contacts and self.grab is None:
+        rotated_done = False
+        if contacts and not grabbed:
+            rotated_done = True
             self.vx *= 0.6
             self.vy *= 0.6
             if abs(self.vx) < 0.03:
@@ -364,8 +537,8 @@ class Body:
                 return gdy * (X + 0.5) - gdx * (Y + 0.5)
 
             us = [u_of(X, Y) for (X, Y) in contacts]
-            u_lo = min(us) - 0.5
-            u_hi = max(us) + 0.5
+            u_lo = min(us) - 0.5 - SUPPORT_TOLERANCE
+            u_hi = max(us) + 0.5 + SUPPORT_TOLERANCE
             u_c = gdy * self.px - gdx * self.py
             if u_lo <= u_c <= u_hi:
                 stable = True
@@ -375,8 +548,9 @@ class Body:
                     X, Y = max(contacts, key=lambda c_: u_of(*c_))
                 else:
                     X, Y = min(contacts, key=lambda c_: u_of(*c_))
-                pivot_x = X + 0.5 + 0.5 * gdx
-                pivot_y = Y + 0.5 + 0.5 * gdy
+                side = 1.0 if u_c > u_hi else -1.0
+                pivot_x = X + 0.5 + 0.5 * gdx + 0.5 * side * gdy
+                pivot_y = Y + 0.5 + 0.5 * gdy - 0.5 * side * gdx
                 rx = self.px - pivot_x
                 ry = self.py - pivot_y
                 sign = 1.0 if (rx * gdy - ry * gdx) > 0 else -1.0
@@ -390,25 +564,43 @@ class Body:
                         break
                 if rotated is not None:
                     cover = rotated
+                    self.jam = 0
                 else:
                     self.omega = 0.0
+                    self.jam += 1
                     direction = 1.0 if u_c > u_hi else -1.0
                     self.vx += direction * gdy * 0.35
                     self.vy += direction * -gdx * 0.35
-        elif self.grab is None:
-            if self.omega:
-                self.omega *= 0.995
-                rotated = self._rotate_about(self.px, self.py, self.omega)
+
+        if not rotated_done and self.omega:
+            self.omega *= 0.97 if grabbed else 0.995
+            rotated = None
+            for scale in (1.0, 0.5):
+                rotated = self._rotate_about(self.px, self.py, self.omega * scale)
                 if rotated is not None:
-                    cover = rotated
-                else:
-                    self.omega = 0.0
+                    break
+            if rotated is not None:
+                cover = rotated
+            else:
+                self.omega = 0.0
 
         if cover != self.cover:
             self._apply_cover(cover)
         moved = (self.px, self.py, self.theta) != start_pose
+        if moved:
+            self.jam = 0
+        elif blocked and not grabbed:
+            self.jam += 1
+            if self.jam >= JAM_TICKS:
+                stable = True
+                self.vx = 0.0
+                self.vy = 0.0
+                self.omega = 0.0
 
-        if stable and not moved and abs(self.vx) < 0.05 and abs(self.vy) < 0.05 and self.grab is None:
+        if impact_speed > IMPACT_MIN_SPEED and blocked:
+            self._impact(blocked, impact_speed)
+
+        if stable and not moved and abs(self.vx) < 0.05 and abs(self.vy) < 0.05 and not grabbed:
             self.rest_ticks += 1
             if self.rest_ticks >= REST_TICKS:
                 xs = [X for X, _ in self.cover]
@@ -417,6 +609,29 @@ class Body:
                 self.resting = True
         else:
             self.rest_ticks = 0
+
+    def _impact(self, axes, speed):
+        world = self.world
+        grid = world.grid
+        W = world.width
+        H = world.height
+        pairs = []
+        for (X, Y) in self.cover:
+            for sx, sy in axes:
+                nx, ny = X + sx, Y + sy
+                if 0 <= nx < W and 0 <= ny < H:
+                    t = grid[ny][nx]
+                    if t is None or t.body is self:
+                        continue
+                    m = t.material
+                    if t.body is None and m is not None and m.physics_type[0] in (2, 3, 4):
+                        continue
+                    pairs.append((X, Y, nx, ny))
+        if not pairs:
+            return
+        gdx, gdy = self._gravity()
+        damage.apply_impact(world, pairs, 0.5 * self.mass * speed * speed, (-gdx, -gdy))
+
 
 def is_selectable(world, x, y):
     if not world.in_bounds(x, y) or world.is_border(x, y):
@@ -451,12 +666,20 @@ def make_body(world, coords):
     min_y = min(y for _, y in coords)
     cells = {}
     cover = {}
+    total = 0.0
+    sx = 0.0
+    sy = 0.0
     for (x, y) in coords:
         key = (x - min_x, y - min_y)
-        cells[key] = world.grid[y][x]
+        p = world.grid[y][x]
+        p.baked = world.cell_rgba(x, y)
+        cells[key] = p
         cover[(x, y)] = key
-    n = len(cells)
-    com = (sum(i + 0.5 for i, _ in cells) / n, sum(j + 0.5 for _, j in cells) / n)
+        d = _density(p)
+        total += d
+        sx += d * (key[0] + 0.5)
+        sy += d * (key[1] + 0.5)
+    com = (sx / total, sy / total)
     body = Body(world, cells, com, com[0] + min_x, com[1] + min_y)
     body.cover = cover
     world.bodies.append(body)
@@ -512,6 +735,13 @@ def body_at(world, x, y):
     return best
 
 
+def grab_at(world, fx, fy):
+    body = body_at(world, int(fx), int(fy))
+    if body is not None:
+        body.begin_grab(fx, fy)
+    return body
+
+
 def update_bodies(world):
     for body in list(world.bodies):
         if not body.dead:
@@ -522,7 +752,7 @@ def update_bodies(world):
 _BLOB_SHAPE = ("  ####  ", " ###### ", "########", "####### ", " ###### ", "   ###  ")
 
 
-def spawn_blob(world, gx, gy, material="Камень"):
+def spawn_blob(world, gx, gy, material="Скала"):
     from .particle import Particle
     coords = []
     h = len(_BLOB_SHAPE)
