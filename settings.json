@@ -1,0 +1,423 @@
+{
+  "general": {
+    "BORDER_SIZE": 2,
+    "GAME_WIDTH": 960,
+    "GAME_HEIGHT": 480,
+    "COLUMN_WIDTH": 100,
+    "PIXEL_SIZE": 8,
+    "FPS": 100,
+    "PHYSICS_TPS": 48
+  },
+  "world": {
+    "chunk_size": 16,
+    "wake_margin": 3,
+    "awake_ticks": 3,
+    "ambient_temperature": 20.0,
+    "thermal_threshold": 0.1,
+    "thermal_ttl": 10,
+    "thermal_interval": 10,
+    "sky_color": [100, 220, 250]
+  },
+  "physics": {
+    "ballistic_gravity": 0.22,
+    "ballistic_max_speed": 3.5,
+    "bounce": 0.03,
+    "liquid_bounce": 0.45,
+    "liquid_bounce_burn_chance": 0.25,
+    "ballistic_stop_speed": 0.8,
+    "fluid_drag": 0.8,
+    "fall_acceleration": 0.12,
+    "fall_terminal_speed": 4.0,
+    "prevent_corner_cutting": true,
+    "gas_cooling_rate": 0.004,
+    "gas_cooling_deadzone": 0.5,
+    "gas_jitter_chance": 0.1,
+    "fire_rise_fraction": 0.8,
+    "fire_jitter_chance": 0.1,
+    "extinguish_cooling_margin": 5,
+    "sodium_reaction_chance": 0.5,
+    "sodium_steam_temperature": 130,
+    "sodium_burning_temperature": 600,
+    "sodium_eject_speed_min": 1.4,
+    "sodium_eject_speed_max": 3.0,
+    "sodium_flash_chance": 0.6,
+    "sodium_explosion_radius": 3,
+    "sodium_explosion_power": 5.0,
+    "wet_sand_dry_age": 500,
+    "wet_sand_dry_chance": 0.01,
+    "wet_sand_harden_chance": 0.005,
+    "wet_sand_fast_fall_chance": 0.05,
+    "kinetic_max_stickiness": 0.8,
+    "kinetic_slide_chance": 0.05,
+    "kinetic_fast_fall_chance": 0.05,
+    "phase_energy_decay": 0.97
+  },
+  "objects": {
+    "max_body_cells": 2048,
+    "gravity": 0.12,
+    "max_speed": 6.0,
+    "rest_ticks": 6,
+    "substep": 0.5,
+    "max_omega": 0.12,
+    "max_omega_grab": 0.3,
+    "tip_accel": 0.012,
+    "support_tolerance": 0.25,
+    "jam_ticks": 12,
+    "impact_min_speed": 0.45,
+    "impact_cooldown_ticks": 8,
+    "grab_stiffness": 0.3,
+    "grab_max_speed": 6.0,
+    "grab_strength": 0.6,
+    "restitution": 0.1,
+    "friction": 1.0,
+    "liquid_drag": 0.12,
+    "liquid_spin_drag": 0.2,
+    "push_powders": true,
+    "relocate_search_limit": 4000,
+    "contact_rest_speed": 0.15,
+    "grab_damage_speed_fraction": 0.35
+  },
+  "damage": {
+    "crack_fraction": 0.35,
+    "body_blast": 0.6,
+    "cushion": 0.1,
+    "reference_speed": 3.0,
+    "crack_min_length": 3,
+    "crack_max_length": 5,
+    "crack_branch_chance": 0.25,
+    "rubble_speed_factor": 0.35,
+    "rubble_speed_cap": 2.5,
+    "shockwave_up_bias": 0.6
+  },
+  "menu": {
+    "item_size": 40,
+    "item_step": 60,
+    "top_margin": 10,
+    "scroll_step": 60,
+    "columns": {
+      "variant": 10,
+      "base": 70,
+      "group": 130,
+      "subtool": 190,
+      "tool": 250
+    },
+    "background": [0, 0, 0],
+    "loading_text": "Генерация текстур...",
+    "loading_bar_width": 400,
+    "loading_bar_height": 20,
+    "selection_highlight": [255, 255, 255, 70],
+    "notice_duration_ms": 2000
+  },
+  "ui": {
+    "painted_colors": [
+      [
+        "Красный",
+        [
+          255,
+          0,
+          0
+        ]
+      ],
+      [
+        "Красно-оранжевый",
+        [
+          255,
+          75,
+          0
+        ]
+      ],
+      [
+        "Оранжевый",
+        [
+          255,
+          150,
+          0
+        ]
+      ],
+      [
+        "Оранжево-жёлтый",
+        [
+          255,
+          200,
+          0
+        ]
+      ],
+      [
+        "Жёлтый",
+        [
+          255,
+          255,
+          0
+        ]
+      ],
+      [
+        "Салатовый",
+        [
+          200,
+          255,
+          0
+        ]
+      ],
+      [
+        "Зелёный",
+        [
+          100,
+          255,
+          0
+        ]
+      ],
+      [
+        "Изумрудный",
+        [
+          0,
+          255,
+          75
+        ]
+      ],
+      [
+        "Бирюзовый",
+        [
+          0,
+          255,
+          150
+        ]
+      ],
+      [
+        "Морской",
+        [
+          0,
+          255,
+          200
+        ]
+      ],
+      [
+        "Голубой",
+        [
+          0,
+          255,
+          255
+        ]
+      ],
+      [
+        "Небесно-голубой",
+        [
+          0,
+          225,
+          255
+        ]
+      ],
+      [
+        "Лазурный",
+        [
+          0,
+          200,
+          255
+        ]
+      ],
+      [
+        "Светло-синий",
+        [
+          0,
+          150,
+          255
+        ]
+      ],
+      [
+        "Синий",
+        [
+          0,
+          100,
+          255
+        ]
+      ],
+      [
+        "Истинный синий",
+        [
+          0,
+          50,
+          255
+        ]
+      ],
+      [
+        "Черноморский-синий",
+        [
+          0,
+          0,
+          255
+        ]
+      ],
+      [
+        "Индиго",
+        [
+          100,
+          0,
+          255
+        ]
+      ],
+      [
+        "Фиолетовый",
+        [
+          150,
+          0,
+          255
+        ]
+      ],
+      [
+        "Пурпурный",
+        [
+          200,
+          0,
+          255
+        ]
+      ],
+      [
+        "Розовый",
+        [
+          255,
+          0,
+          150
+        ]
+      ],
+      [
+        "Алый",
+        [
+          255,
+          0,
+          100
+        ]
+      ],
+      [
+        "Белый",
+        [
+          255,
+          255,
+          255
+        ]
+      ],
+      [
+        "Светло-серый",
+        [
+          185,
+          185,
+          180
+        ]
+      ],
+      [
+        "Серый",
+        [
+          150,
+          150,
+          150
+        ]
+      ],
+      [
+        "Тёмно-серый",
+        [
+          100,
+          100,
+          100
+        ]
+      ],
+      [
+        "Чёрный",
+        [
+          50,
+          50,
+          55
+        ]
+      ],
+      [
+        "Тёмно-коричневый",
+        [
+          100,
+          50,
+          25
+        ]
+      ],
+      [
+        "Коричневый",
+        [
+          150,
+          100,
+          50
+        ]
+      ],
+      [
+        "Светло-коричневый",
+        [
+          200,
+          150,
+          100
+        ]
+      ]
+    ],
+    "tools": [
+      "Рисование",
+      "Объекты",
+      "Выбор цвета"
+    ],
+    "brush_subtools": [
+      "Круглая кисть",
+      "Квадратная кисть",
+      "Случайная кисть",
+      "Карандаш",
+      "Ластик"
+    ],
+    "object_subtools": [
+      "Рамка",
+      "Заливка"
+    ],
+    "defaults": {
+      "tool": "Рисование",
+      "material": "Песок",
+      "subtool": "Круглая кисть",
+      "color": [
+        "Белый",
+        [255, 255, 255]
+      ],
+      "group": "Строительство",
+      "base": "Песок",
+      "variant": "Песок",
+      "brush_radius": 1
+    }
+  },
+  "keys": {
+    "screenshot": "f2",
+    "temperature_mode": "w",
+    "spawn_object": "q",
+    "select_material": "return",
+    "gravity_up": "up",
+    "gravity_down": "down",
+    "gravity_left": "left",
+    "gravity_right": "right",
+    "brush_radius": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9"
+    ],
+    "tools": {
+      "Рисование": "b",
+      "Объекты": "o",
+      "Выбор цвета": "c"
+    },
+    "subtools": {
+      "Рисование": {
+        "Круглая кисть": "r",
+        "Квадратная кисть": "s",
+        "Случайная кисть": "d",
+        "Карандаш": "p",
+        "Ластик": "e"
+      },
+      "Объекты": {
+        "Рамка": "f",
+        "Заливка": "g"
+      }
+    }
+  }
+}

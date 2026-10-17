@@ -33,6 +33,8 @@ class Particle:
 
         self.body = None
         self.baked = None
+        self.phase_energy = 0.0
+        self.fall = 0.0
 
         self.color = tuple(color) if color else tuple(self.material.color)
         self.opacity = self.material.opacity

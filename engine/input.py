@@ -1,195 +1,177 @@
 import pygame
 
-from .constants import *
-from . import physics
-from .materials import MATERIALS
-from .bodies import grab_at, spawn_blob
-from .menu import get_hovered_in_column, available_tools
+from . import filework
+from .menu import menu_input
+from .objects import grab_at, make_bodies, select_flood, select_rect, spawn_blob
+from .paint import apply_brush, draw_line
+from .physics import physics as _physics
+from .settings import *
+
+KEYS = SETTINGS.keys
+GRAVITY_ROTATION = {"gravity_up": 180, "gravity_down": 0, "gravity_left": -90, "gravity_right": 90}
+_keymap = None
 
 
-def handle_event(event, state, objects, world, take_screenshot):
-    (
-        mouse_down, brush_radius, erase,
-        selected_tool, selected_material,
-        displaying_group, displaying_base, displaying_variant,
-        scroll_group, scroll_base, scroll_variant, scroll_tool,
-        selected_subtool, scroll_subtool, selected_color, displaying_color
-    ) = state
+def _code(name):
+    try:
+        return pygame.key.key_code(name)
+    except ValueError:
+        return None
 
-    menu_dirty = False
 
-    if event.type == pygame.KEYDOWN:
-        if pygame.K_1 <= event.key <= pygame.K_9:
-            brush_radius = event.key - pygame.K_0
+def _bind(keymap, name, action):
+    code = _code(name)
+    if code is not None:
+        keymap[code] = action
 
-        elif event.key == pygame.K_F2:
-            take_screenshot(world, objects)
 
-        elif event.key == pygame.K_q:
-            mx, my = pygame.mouse.get_pos()
-            if mx < GAME_WIDTH:
-                spawn_blob(world, mx // PIXEL_SIZE, my // PIXEL_SIZE)
+def build_keymap():
+    keymap = {}
+    for action in ("screenshot", "temperature_mode", "spawn_object", "select_material"):
+        _bind(keymap, getattr(KEYS, action), (action,))
+    for action, rotation in GRAVITY_ROTATION.items():
+        _bind(keymap, getattr(KEYS, action), ("gravity", rotation))
+    for index, name in enumerate(KEYS.brush_radius):
+        _bind(keymap, name, ("radius", index + 1))
+    for tool, name in vars(KEYS.tools).items():
+        _bind(keymap, name, ("tool", tool))
+    for tool, subtools in vars(KEYS.subtools).items():
+        for subtool, name in vars(subtools).items():
+            _bind(keymap, name, ("subtool", tool, subtool))
+    return keymap
 
-        elif event.key == pygame.K_e and selected_tool != "Объекты":
-            erase = not erase
-            if erase:
-                selected_subtool = "Ластик"
-            else:
-                selected_subtool = "Круглая кисть"
-            menu_dirty = True
 
-        elif event.key == pygame.K_RETURN:
-            selected_material = displaying_variant or displaying_base
+def keymap():
+    global _keymap
+    if _keymap is None:
+        _keymap = build_keymap()
+    return _keymap
 
-        elif event.key == pygame.K_UP:
-            physics.physics.physics_rotation = 180
-        elif event.key == pygame.K_DOWN:
-            physics.physics.physics_rotation = 0
-        elif event.key == pygame.K_LEFT:
-            physics.physics.physics_rotation = -90
-        elif event.key == pygame.K_RIGHT:
-            physics.physics.physics_rotation = 90
 
-    if event.type == pygame.MOUSEWHEEL:
-        menu_dirty = True
+def take_screenshot(state):
+    world = state.world
+    surface = pygame.Surface((world.width * PIXEL_SIZE, world.height * PIXEL_SIZE), flags=pygame.SRCALPHA, depth=32)
+    surface.fill(tuple(SETTINGS.world.sky_color))
+    surface.blit(world.surface, (0, 0))
+    filework.save_screenshot(surface)
+
+
+def choose_subtool(state, tool, subtool):
+    if tool == "Рисование":
+        if subtool == "Ластик":
+            if state.selected_tool == tool and state.selected_subtool == "Ластик":
+                subtool = state.previous_brush
+            elif state.selected_subtool != "Ластик":
+                state.previous_brush = state.selected_subtool
+        else:
+            state.previous_brush = subtool
+    menu_input.select_subtool(state, tool, subtool)
+
+
+def handle_key(event, state):
+    action = keymap().get(event.key)
+    if action is None:
+        return
+    name = action[0]
+
+    if name == "screenshot":
+        take_screenshot(state)
+    elif name == "temperature_mode":
+        state.temperature_mode = not state.temperature_mode
+    elif name == "spawn_object":
         mx, my = pygame.mouse.get_pos()
-        item_height = 60
-        visible_height = GAME_HEIGHT
-        scroll_step = item_height
-        scroll_subtool_target = scroll_subtool
-        scroll_tool_target = scroll_tool
-        scroll_base_target = scroll_base
-        scroll_variant_target = scroll_variant
-        scroll_group_target = scroll_group
+        if mx < GAME_WIDTH:
+            spawn_blob(state.world, mx // PIXEL_SIZE, my // PIXEL_SIZE)
+    elif name == "select_material":
+        state.selected_material = state.displaying_variant or state.displaying_base
+        state.menu_dirty = True
+    elif name == "gravity":
+        _physics.physics_rotation = action[1]
+    elif name == "radius":
+        state.brush_radius = action[1]
+    elif name == "tool":
+        menu_input.select_tool(state, action[1])
+    elif name == "subtool":
+        choose_subtool(state, action[1], action[2])
 
-        if GAME_WIDTH + 10 <= mx < GAME_WIDTH + 50:
-            variant_items = [
-                name for name, mat in MATERIALS.items()
-                if displaying_base and len(mat.category) == 3 and mat.category[1] == displaying_base
-            ]
-            max_scroll = max(0, len(variant_items) * item_height - visible_height)
-            scroll_variant_target = min(max(0, scroll_variant_target - event.y * scroll_step), max_scroll)
 
-        elif GAME_WIDTH + 70 <= mx < GAME_WIDTH + 110:
-            base_items = [
-                name for name, mat in MATERIALS.items()
-                if mat.category[0] == displaying_group and (
-                        len(mat.category) == 2 or (len(mat.category) == 3 and mat.category[2] == 0)
-                )
-            ]
-            max_scroll = max(0, len(base_items) * item_height - visible_height)
-            scroll_base_target = min(max(0, scroll_base_target - event.y * scroll_step), max_scroll)
+def handle_event(event, state):
+    if event.type == pygame.QUIT:
+        state.running = False
 
-        elif GAME_WIDTH + 130 <= mx < GAME_WIDTH + 170:
-            groups = sorted(set(mat.category[0] for mat in MATERIALS.values()))
-            max_scroll = max(0, len(groups) * item_height - visible_height)
-            scroll_group_target = min(max(0, scroll_group_target - event.y * scroll_step), max_scroll)
+    elif event.type == pygame.KEYDOWN:
+        handle_key(event, state)
 
-        elif GAME_WIDTH + 190 <= mx < GAME_WIDTH + 230:
-            if selected_tool in TOOL_SUBTYPES:
-                sub_items = TOOL_SUBTYPES[selected_tool]
-                max_scroll = max(0, len(sub_items) * item_height - visible_height)
-                scroll_subtool_target = min(max(0, scroll_subtool_target - event.y * scroll_step), max_scroll)
-
-        elif GAME_WIDTH + 250 <= mx < GAME_WIDTH + 290:
-            max_scroll = max(0, len(TOOLS) * item_height - visible_height)
-            scroll_tool_target = min(max(0, scroll_tool_target - event.y * scroll_step), max_scroll)
-
-        damping = 1.0
-
-        scroll_base += (scroll_base_target - scroll_base) * damping
-        scroll_variant += (scroll_variant_target - scroll_variant) * damping
-        scroll_group += (scroll_group_target - scroll_group) * damping
-        scroll_tool += (scroll_tool_target - scroll_tool) * damping
-        scroll_subtool += (scroll_subtool_target - scroll_subtool) * damping
+    elif event.type == pygame.MOUSEWHEEL:
+        mx, _ = pygame.mouse.get_pos()
+        menu_input.handle_wheel(state, mx, event.y)
 
     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-        menu_dirty = True
-        mouse_down = True
+        state.mouse_down = True
         mx, my = pygame.mouse.get_pos()
-
-        if GAME_WIDTH + 10 <= mx < GAME_WIDTH + 50:
-            variant_items = [
-                name for name, mat in MATERIALS.items()
-                if len(mat.category) == 3 and mat.category[1] == displaying_base
-            ]
-            hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 10, variant_items, scroll_variant)
-            if hovered:
-                displaying_variant = hovered
-                selected_material = hovered
-
-        elif GAME_WIDTH + 70 <= mx < GAME_WIDTH + 110:
-            base_items = [
-                name for name, mat in MATERIALS.items()
-                if mat.category[0] == displaying_group and (
-                        len(mat.category) == 2 or (len(mat.category) == 3 and mat.category[2] == 0)
-                )
-            ]
-            hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 70, base_items, scroll_base)
-            if hovered:
-                displaying_base = hovered
-                displaying_variant = None
-                if hovered in MATERIALS:
-                    selected_material = hovered
-
-
-        elif GAME_WIDTH + 130 <= mx < GAME_WIDTH + 170:
-            groups = sorted(set(mat.category[0] for mat in MATERIALS.values()))
-            hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 130, groups, scroll_group)
-            if hovered:
-                displaying_group = hovered
-                scroll_base = 0
-                scroll_variant = 0
-                if displaying_base and MATERIALS[displaying_base].category[0] != displaying_group:
-                    displaying_variant = None
-
-        elif GAME_WIDTH + 190 <= mx < GAME_WIDTH + 230:
-            if selected_tool == "Выбор цвета":
-                sub_items = TOOL_SUBTYPES["Выбор цвета"]
-                hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 190, sub_items, scroll_subtool)
-                if hovered:
-                    displaying_color = hovered[1] if isinstance(hovered, tuple) else hovered
-                    selected_color = displaying_color
-
-            elif selected_tool in TOOL_SUBTYPES:
-                sub_items = TOOL_SUBTYPES[selected_tool]
-                hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 190, sub_items, scroll_subtool)
-                if hovered:
-                    selected_subtool = hovered
-
-        elif GAME_WIDTH + 250 <= mx < GAME_WIDTH + 290:
-            tools = available_tools(selected_material)
-
-            if selected_tool not in tools:
-                selected_tool = "Рисование"
-                displaying_color = None
-
-            hovered = get_hovered_in_column(mx, my, GAME_WIDTH + 250, tools, scroll_tool)
-            if hovered:
-                selected_tool = hovered
-                scroll_tool = 0
-                scroll_subtool = 0
-
-            if selected_tool == "Объекты":
-                if selected_subtool not in OBJECT_SUBTOOLS:
-                    selected_subtool = OBJECT_SUBTOOLS[0]
-            elif selected_subtool not in BRUSH_SUBTOOLS:
-                selected_subtool = BRUSH_SUBTOOLS[0]
+        menu_input.handle_click(state, mx, my)
 
     elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-        mouse_down = False
+        state.mouse_down = False
 
     elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
         mx, my = pygame.mouse.get_pos()
         if mx < GAME_WIDTH:
-            grab_at(world, mx / PIXEL_SIZE, my / PIXEL_SIZE)
+            grab_at(state.world, mx / PIXEL_SIZE, my / PIXEL_SIZE)
 
-    return (
-        mouse_down, brush_radius, erase,
-        selected_tool, selected_material,
-        displaying_group, displaying_base, displaying_variant,
-        scroll_group, scroll_base, scroll_variant, scroll_tool,
-        selected_subtool, scroll_subtool,
-        selected_color, displaying_color,
-        menu_dirty
-    )
+
+def update_grab(state, mx, my):
+    right_pressed = pygame.mouse.get_pressed()[2]
+    for body in state.world.bodies:
+        if body.grab is not None:
+            if right_pressed:
+                body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE)
+            else:
+                body.end_grab()
+
+
+def update_selection(state, mx, my):
+    world = state.world
+    gx, gy = mx // PIXEL_SIZE, my // PIXEL_SIZE
+    state.last_mouse_pos = None
+    if state.mouse_down and mx < GAME_WIDTH:
+        if state.selection_start is None:
+            state.selection_start = (gx, gy)
+        state.selection_end = (gx, gy)
+    elif state.selection_start is not None:
+        x0, y0 = state.selection_start
+        x1, y1 = state.selection_end or state.selection_start
+        if state.selected_subtool == "Заливка":
+            coords = select_flood(world, x0, y0)
+        else:
+            coords = select_rect(world, x0, y0, x1, y1)
+        _, skipped = make_bodies(world, coords)
+        if skipped:
+            state.notice_text = "Слишком большой объект"
+            state.notice_until = pygame.time.get_ticks() + SETTINGS.menu.notice_duration_ms
+        state.selection_start = state.selection_end = None
+
+
+def update_painting(state, mx, my):
+    state.selection_start = state.selection_end = None
+    gx, gy = mx // PIXEL_SIZE, my // PIXEL_SIZE
+    if state.mouse_down and mx < GAME_WIDTH:
+        if state.last_mouse_pos:
+            lx, ly = state.last_mouse_pos
+            draw_line(state.world, lx, ly, gx, gy, state.selected_material, state.brush_radius, erase=False,
+                      brush_type=state.selected_subtool, selected_color=state.selected_color)
+        else:
+            apply_brush(state.world, gx, gy, state.selected_material, state.brush_radius, erase=False,
+                        brush_type=state.selected_subtool, selected_color=state.selected_color)
+        state.last_mouse_pos = (gx, gy)
+    else:
+        state.last_mouse_pos = None
+
+
+def update(state):
+    mx, my = pygame.mouse.get_pos()
+    update_grab(state, mx, my)
+    if state.selected_tool == "Объекты":
+        update_selection(state, mx, my)
+    else:
+        update_painting(state, mx, my)

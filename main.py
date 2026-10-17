@@ -1,19 +1,15 @@
-import os
-from datetime import datetime
-
 import pygame
 
-from engine.constants import *
-from engine.bodies import make_bodies, select_flood, select_rect, update_bodies
-from engine.draw import draw_world
-from engine.font import init_font, draw_text, get_font
-from engine.input import handle_event
-from engine.menu import draw_menus
-from engine.paint import *
+from engine import input as game_input
+from engine.draw import draw_overlay, draw_world
+from engine.font import init_font
+from engine.menu import menu
+from engine.objects import update_bodies
 from engine.physics.physics import tick_physics
+from engine.settings import *
+from engine.state import GameState
 from engine.timing import FixedTimestep
 from engine.world import World
-from engine.menu import get_hovered_in_column, available_tools
 
 pygame.init()
 init_font()
@@ -21,238 +17,32 @@ screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
 pygame.display.set_caption("Песчинка")
 clock = pygame.time.Clock()
 
-menu_surface = pygame.Surface((MENU_WIDTH, GAME_HEIGHT))
+world = World(GAME_WIDTH // PIXEL_SIZE, GAME_HEIGHT // PIXEL_SIZE)
+world.precompute_textures(lambda progress: menu.draw_loading_screen(screen, progress))
 
-GRID_WIDTH = GAME_WIDTH // PIXEL_SIZE
-GRID_HEIGHT = GAME_HEIGHT // PIXEL_SIZE
-
-world = World(GRID_WIDTH, GRID_HEIGHT)
-world.precompute_textures(screen)
-
-objects = world.bodies
-brush_radius = 1
-last_mouse_pos = None
-mouse_down = False
-erase_mode = False
-
-selected_tool = "Рисование"
-selected_material = "Песок"
-selected_subtool = "Круглая кисть"
-selected_color = (255, 255, 255)
-
-displaying_group = "Строительство"
-displaying_base = "Песок"
-displaying_variant = "Песок"
-displaying_color = ("Белый", (255, 255, 255))
-
-scroll_group = 0
-scroll_base = 0
-scroll_variant = 0
-scroll_tool = 0
-scroll_subtool = 0
-
-temperature_mode = False
-
-
-def draw_hover_text(screen, mx, my,
-                    displaying_base, displaying_group,
-                    selected_tool, selected_material,
-                    scroll_variant, scroll_base, scroll_group,
-                    scroll_subtool, scroll_tool):
-    hovered_name = None
-
-    if GAME_WIDTH + 10 <= mx < GAME_WIDTH + 50:
-        variant_items = [
-            name for name, mat in MATERIALS.items()
-            if displaying_base and len(mat.category) == 3 and mat.category[1] == displaying_base
-        ]
-        hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 10, variant_items, scroll_variant)
-
-    elif GAME_WIDTH + 70 <= mx < GAME_WIDTH + 110:
-        base_items = [
-            name for name, mat in MATERIALS.items()
-            if mat.category[0] == displaying_group and (
-                    len(mat.category) == 2 or (len(mat.category) == 3 and mat.category[2] == 0)
-            )
-        ]
-        hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 70, base_items, scroll_base)
-
-    elif GAME_WIDTH + 130 <= mx < GAME_WIDTH + 170:
-        groups = sorted(set(mat.category[0] for mat in MATERIALS.values()))
-        hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 130, groups, scroll_group)
-
-    elif GAME_WIDTH + 190 <= mx < GAME_WIDTH + 230:
-        if selected_tool in TOOL_SUBTYPES:
-            sub_items = TOOL_SUBTYPES[selected_tool]
-            hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 190, sub_items, scroll_subtool)
-
-    elif GAME_WIDTH + 250 <= mx < GAME_WIDTH + 290:
-        tools = available_tools(selected_material)
-        hovered_name = get_hovered_in_column(mx - GAME_WIDTH, my, 250, tools, scroll_tool)
-
-    if hovered_name:
-        hovered_text = hovered_name[0] if isinstance(hovered_name, tuple) else str(hovered_name)
-
-        text_width, text_height = get_font().size(hovered_text)
-        draw_text(screen, hovered_text, mx - text_width, my - text_height + 20)
-
-    return hovered_name
-
-
-def take_world_screenshot(world, objects):
-    surface = pygame.Surface((world.width * PIXEL_SIZE, world.height * PIXEL_SIZE), flags=pygame.SRCALPHA, depth=32)
-
-    surface.fill((100, 220, 250))
-    surface.blit(world.surface, (0, 0))
-    os.makedirs("screenshots", exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"screenshots/world_{timestamp}.png"
-    pygame.image.save(surface, filename)
-
-menu_dirty = True
-
-selection_start = None
-selection_end = None
-notice_text = None
-notice_until = 0
-highlight = pygame.Surface((PIXEL_SIZE, PIXEL_SIZE), pygame.SRCALPHA)
-highlight.fill((255, 255, 255, 70))
-
+state = GameState(world)
 physics_clock = FixedTimestep(PHYSICS_TPS)
 frame_seconds = 0.0
+sky_color = tuple(SETTINGS.world.sky_color)
 
-running = True
-while running:
+while state.running:
     for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            running = False
-
-        elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_w:
-                temperature_mode = not temperature_mode
-
-        (
-            mouse_down, brush_radius, erase_mode,
-            selected_tool, selected_material,
-            displaying_group, displaying_base, displaying_variant,
-            scroll_group, scroll_base, scroll_variant, scroll_tool,
-            selected_subtool, scroll_subtool,
-            selected_color, displaying_color, menu_dirty_flag
-        ) = handle_event(
-            event,
-            (
-                mouse_down, brush_radius, erase_mode,
-                selected_tool, selected_material,
-                displaying_group, displaying_base, displaying_variant,
-                scroll_group, scroll_base, scroll_variant, scroll_tool,
-                selected_subtool, scroll_subtool,
-                selected_color, displaying_color
-            ),
-            objects,
-            world,
-            take_world_screenshot
-        )
-        if menu_dirty_flag:
-            menu_dirty = True
-
-    mx, my = pygame.mouse.get_pos()
-    gx, gy = mx // PIXEL_SIZE, my // PIXEL_SIZE
-
-    right_pressed = pygame.mouse.get_pressed()[2]
-    for body in world.bodies:
-        if body.grab is not None:
-            if right_pressed:
-                body.grab = (mx / PIXEL_SIZE, my / PIXEL_SIZE)
-            else:
-                body.end_grab()
-
-    if selected_tool == "Объекты":
-        last_mouse_pos = None
-        if mouse_down and mx < GAME_WIDTH:
-            if selection_start is None:
-                selection_start = (gx, gy)
-            selection_end = (gx, gy)
-        elif selection_start is not None:
-            x0, y0 = selection_start
-            x1, y1 = selection_end or selection_start
-            if selected_subtool == "Заливка":
-                coords = select_flood(world, x0, y0)
-            else:
-                coords = select_rect(world, x0, y0, x1, y1)
-            _, skipped = make_bodies(world, coords)
-            if skipped:
-                notice_text = "Слишком большой объект"
-                notice_until = pygame.time.get_ticks() + 2000
-            selection_start = selection_end = None
-    else:
-        selection_start = selection_end = None
-        if mouse_down and mx < GAME_WIDTH:
-            if last_mouse_pos:
-                lx, ly = last_mouse_pos
-                draw_line(world, lx, ly, gx, gy, selected_material, brush_radius, erase=erase_mode,
-                          brush_type=selected_subtool, selected_color=selected_color)
-
-            else:
-                apply_brush(world, gx, gy, selected_material, brush_radius, erase=erase_mode,
-                            brush_type=selected_subtool, selected_color=selected_color)
-
-            last_mouse_pos = (gx, gy)
-        else:
-            last_mouse_pos = None
+        game_input.handle_event(event, state)
+    game_input.update(state)
 
     for _ in range(physics_clock.advance(frame_seconds)):
         tick_physics(world)
         update_bodies(world)
 
-    screen.fill((100, 220, 250))
-    draw_world(screen, world, temperature_mode)
+    screen.fill(sky_color)
+    draw_world(screen, world, state.temperature_mode)
+    draw_overlay(screen, state)
 
-    if selected_tool == "Объекты":
-        for body in world.bodies:
-            for (bx, by) in body.cover:
-                screen.blit(highlight, (bx * PIXEL_SIZE, by * PIXEL_SIZE))
-        if selection_start is not None and selected_subtool == "Рамка":
-            ex, ey = selection_end or selection_start
-            rx0, rx1 = sorted((selection_start[0], ex))
-            ry0, ry1 = sorted((selection_start[1], ey))
-            pygame.draw.rect(screen, (255, 255, 255),
-                             (rx0 * PIXEL_SIZE, ry0 * PIXEL_SIZE,
-                              (rx1 - rx0 + 1) * PIXEL_SIZE, (ry1 - ry0 + 1) * PIXEL_SIZE), 2)
-
-    if notice_text and pygame.time.get_ticks() < notice_until:
-        draw_text(screen, notice_text, 10, 10)
-
-    hovered_name = None
-
-    if menu_dirty:
-        preview_type, displaying_variant = draw_menus(
-            menu_surface,
-            selected_material,
-            scroll_variant,
-            scroll_base,
-            scroll_group,
-            scroll_tool,
-            displaying_variant,
-            displaying_base,
-            displaying_group,
-            selected_tool,
-            selected_subtool,
-            selected_color,
-            scroll_subtool
-        )
-        menu_dirty = False
-
-    screen.blit(menu_surface, (GAME_WIDTH, 0))
-
-    hovered_name = draw_hover_text(
-        screen, mx, my,
-        displaying_base, displaying_group,
-        selected_tool, selected_material,
-        scroll_variant, scroll_base, scroll_group,
-        scroll_subtool, scroll_tool
-    )
-
-    fps = clock.get_fps()
+    if state.menu_dirty:
+        menu.draw_menus(state)
+        state.menu_dirty = False
+    screen.blit(state.menu_surface, (GAME_WIDTH, 0))
+    menu.draw_hover_text(screen, state)
 
     pygame.display.flip()
     frame_seconds = clock.tick(FPS) / 1000.0

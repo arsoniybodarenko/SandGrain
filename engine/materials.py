@@ -1,4 +1,4 @@
-import os
+from .filework import load_texture, load_icon
 
 all_materials = []
 
@@ -12,7 +12,8 @@ class Material:
         "temperature", "texture", "opacity", "glow", "category",
         "reacts_with", "texture_map", "become_to", "paintable", "burn",
         "density", "hardness", "shatter_to", "shatter_chance", "viscosity",
-        "extinguishes", "impact"
+        "extinguishes", "impact", "latent_heat", "condense_needs_ceiling",
+        "liquid_bounce", "impact_immune"
     )
 
     def __init__(
@@ -47,7 +48,11 @@ class Material:
             shatter_chance=1.0,
             viscosity=0.0,
             extinguishes=False,
-            impact=None
+            impact=None,
+            latent_heat=0.0,
+            condense_needs_ceiling=False,
+            liquid_bounce=False,
+            impact_immune=False
     ):
         self.name = name
         self.color = color
@@ -81,6 +86,10 @@ class Material:
         self.viscosity = viscosity
         self.extinguishes = extinguishes
         self.impact = impact
+        self.latent_heat = latent_heat
+        self.condense_needs_ceiling = condense_needs_ceiling
+        self.liquid_bounce = liquid_bounce
+        self.impact_immune = impact_immune
         global all_materials
         all_materials.append(self)
 
@@ -93,66 +102,6 @@ def get_selected_material(selected_base, selected_variant):
     return None
 
 
-class TextureData(tuple):
-    name = None
-
-
-def load_texture(name):
-    path = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "textures", f"{name}.texture"))
-    if not os.path.exists(path):
-        data = TextureData(([], {}))
-        data.name = None
-        return data
-
-    with open(path, "r", encoding="utf-8") as f:
-        lines = [line.rstrip() for line in f if line.strip()]
-
-    texture_lines = []
-    palette = {}
-    for line in lines:
-        if "=" in line:
-            key, expr = line.split("=", 1)
-            palette[key.strip()] = expr.strip()
-        else:
-            texture_lines.append(line)
-
-    data = TextureData((texture_lines, palette))
-    data.name = name
-    return data
-
-
-def load_icon(name):
-    path = os.path.join(os.path.dirname(__file__), "..", "assets/icons", f"{name}.icon")
-    path = os.path.normpath(path)
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            lines = f.read().splitlines()
-    except FileNotFoundError:
-        return None
-
-    grid = lines[:10]
-    color_map = {}
-
-    for line in lines[10:]:
-        if "=" in line:
-            key, value = line.split("=")
-            key = key.strip()
-            rgb = tuple(map(int, value.strip("()").split(",")))
-            color_map[key] = rgb
-
-    pixels = []
-    for y in range(10):
-        row = []
-        for x in range(10):
-            char = grid[y][x]
-            color = color_map.get(char, (255, 255, 255))
-            row.append(color)
-        pixels.append(row)
-
-    return pixels
-
-
 MATERIALS = {
     "Песок": Material(
         name="Песок",
@@ -162,7 +111,11 @@ MATERIALS = {
         conduct_heat=0.1,
         opacity=1.0,
         texture=load_texture("Песок"),
-        density=1.6
+        density=1.6,
+        meltable=True,
+        melting_point=1200,
+        become_to=('Раскалённое стекло', None),
+        latent_heat=300.0
     ),
 
     "Мокрый песок": Material(
@@ -225,7 +178,11 @@ MATERIALS = {
         conduct_heat=0.1,
         opacity=0.85,
         texture=load_texture("Песок"),
-        density=1.6
+        density=1.6,
+        meltable=True,
+        melting_point=1200,
+        become_to=('Раскалённое стекло', None),
+        latent_heat=300.0
     ),
 
     "Инопланетный песок": Material(
@@ -312,7 +269,8 @@ MATERIALS = {
         explosive=False,
         temperature=20,
         density=7.8,
-        become_to=('Расплавленная сталь', None)
+        become_to=('Расплавленная сталь', None),
+        latent_heat=400.0
     ),
     "Доски": Material(
         name="Доски",
@@ -364,7 +322,8 @@ MATERIALS = {
         temperature=20,
         burn=(0.35, 0.45, 0.45, 0.05),
         density=0.7,
-        hardness=2.0
+        hardness=2.0,
+        impact_immune=True
     ),
     "Уголь": Material(
         name="Уголь",
@@ -399,7 +358,8 @@ MATERIALS = {
         temperature=20,
         heat_capacity=4.18,
         density=1.0,
-        extinguishes=True
+        extinguishes=True,
+        latent_heat=300.0
     ),
     "Пар": Material(
         name="Пар",
@@ -413,7 +373,9 @@ MATERIALS = {
         temperature=110,
         texture=load_texture("Пар"),
         become_to=("Вода", None),
-        density=0.001
+        density=0.001,
+        latent_heat=200.0,
+        condense_needs_ceiling=True
     ),
     "Лёд": Material(
         name="Лёд",
@@ -430,7 +392,8 @@ MATERIALS = {
         meltable=True,
         freezable=False,
         density=0.92,
-        hardness=5.0
+        hardness=5.0,
+        latent_heat=2000.0
     ),
     "Жидкий азот": Material(
         name="Жидкий азот",
@@ -447,7 +410,8 @@ MATERIALS = {
         heat_capacity=2.0,
         meltable=True,
         density=0.8,
-        extinguishes=True
+        extinguishes=True,
+        latent_heat=150.0
     ),
     "Азот": Material(
         name="Азот",
@@ -462,7 +426,8 @@ MATERIALS = {
         become_to=("Жидкий азот", None),
         temperature=-190,
         heat_capacity=1.0,
-        density=0.001
+        density=0.001,
+        latent_heat=150.0
     ),
     "Натрий": Material(
         name="Натрий",
@@ -477,7 +442,8 @@ MATERIALS = {
         ignition_point=110,
         burn=(0.0003, 0.0012, 0.003, 0.0),
         density=0.97,
-        impact='burn_out'
+        impact='burn_out',
+        liquid_bounce=True
     ),
     "Медь": Material(
         name="Медь",
@@ -496,7 +462,8 @@ MATERIALS = {
         explosive=False,
         temperature=20,
         density=8.9,
-        become_to=('Расплавленная медь', None)
+        become_to=('Расплавленная медь', None),
+        latent_heat=300.0
     ),
     "Творческая граница": Material(
         name="Творческая граница",
@@ -612,7 +579,8 @@ MATERIALS = {
         freezing_point=1450,
         become_to=("Сталь", None),
         density=7.0,
-        viscosity=0.55
+        viscosity=0.55,
+        latent_heat=300.0
     ),
     "Расплавленная медь": Material(
         name="Расплавленная медь",
@@ -627,6 +595,22 @@ MATERIALS = {
         freezing_point=1050,
         become_to=("Медь", None),
         density=8.0,
-        viscosity=0.5
+        viscosity=0.5,
+        latent_heat=200.0
+    ),
+    "Раскалённое стекло": Material(
+        name="Раскалённое стекло",
+        color=(255, 175, 70),
+        physics_type=(2, 0),
+        category=("Строительство", "Стекло", 2),
+        conduct_heat=0.4,
+        opacity=1.0,
+        glow=True,
+        temperature=1300,
+        freezing_point=900,
+        become_to=("Стекло", None),
+        latent_heat=200.0,
+        density=2.4,
+        viscosity=0.8
     ),
 }

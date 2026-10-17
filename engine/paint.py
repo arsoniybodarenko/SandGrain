@@ -27,6 +27,7 @@ def apply_fire_logic(world, nx, ny, mat):
 
     world.draw_cell(nx, ny)
     world.wake(nx, ny)
+    world.mark_thermal(nx, ny, particle)
 
 
 def draw_circle(world, cx, cy, selected_material, radius, erase=False, selected_color=None):

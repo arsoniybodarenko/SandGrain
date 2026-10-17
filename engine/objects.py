@@ -3,26 +3,32 @@ from collections import deque
 
 from . import damage
 from .physics import physics as _phys
+from .settings import SETTINGS
 
-MAX_BODY_CELLS = 2048
-GRAVITY = 0.12
-MAX_SPEED = 6.0
-REST_TICKS = 6
-SUBSTEP = 0.5
-MAX_OMEGA = 0.12
-MAX_OMEGA_GRAB = 0.3
-TIP_ACCEL = 0.012
-SUPPORT_TOLERANCE = 0.25
-JAM_TICKS = 12
-IMPACT_MIN_SPEED = 0.45
-GRAB_STIFFNESS = 0.3
-GRAB_MAX_SPEED = 6.0
-GRAB_STRENGTH = 0.6
-
-_RELOCATE_OFFSETS = sorted(
-    ((dx, dy) for dx in range(-4, 5) for dy in range(-4, 5) if dx or dy),
-    key=lambda d: d[0] * d[0] + d[1] * d[1],
-)
+_O = SETTINGS.objects
+MAX_BODY_CELLS = _O.max_body_cells
+GRAVITY = _O.gravity
+MAX_SPEED = _O.max_speed
+REST_TICKS = _O.rest_ticks
+SUBSTEP = _O.substep
+MAX_OMEGA = _O.max_omega
+MAX_OMEGA_GRAB = _O.max_omega_grab
+TIP_ACCEL = _O.tip_accel
+SUPPORT_TOLERANCE = _O.support_tolerance
+JAM_TICKS = _O.jam_ticks
+IMPACT_MIN_SPEED = _O.impact_min_speed
+IMPACT_COOLDOWN = _O.impact_cooldown_ticks
+GRAB_DAMAGE_CAP = _O.grab_damage_speed_fraction * _O.max_speed
+GRAB_STIFFNESS = _O.grab_stiffness
+GRAB_MAX_SPEED = _O.grab_max_speed
+GRAB_STRENGTH = _O.grab_strength
+RESTITUTION = _O.restitution
+CONTACT_REST_SPEED = _O.contact_rest_speed
+FRICTION = _O.friction
+LIQUID_DRAG = _O.liquid_drag
+LIQUID_SPIN_DRAG = _O.liquid_spin_drag
+PUSH_POWDERS = _O.push_powders
+RELOCATE_LIMIT = _O.relocate_search_limit
 
 
 def _density(p):
@@ -48,6 +54,7 @@ class Body:
         self.grab_local = None
         self.dead = False
         self.jam = 0
+        self.impact_cooldown = 0
         self.mass = 1.0
         self.inertia = 1.0
         self.radius = 1.0
@@ -130,7 +137,7 @@ class Body:
                     cover[best] = key
         return cover
 
-    def _collides(self, cover):
+    def _collides(self, cover, push=False):
         grid = self.world.grid
         W = self.world.width
         H = self.world.height
@@ -141,16 +148,63 @@ class Body:
             if t is None or t.body is self:
                 continue
             m = t.material
-            if t.body is None and m is not None and m.physics_type[0] in (2, 3, 4):
-                continue
+            if t.body is None and m is not None:
+                kind = m.physics_type[0]
+                if kind in (2, 3, 4):
+                    continue
+                if push and PUSH_POWDERS and kind == 1 and not (t.vx or t.vy):
+                    continue
             return True
         return False
 
-    def _try_pose(self, px, py, th):
+    def _try_pose(self, px, py, th, push=False):
         cover = self._pose_cover(px, py, th)
-        if self._collides(cover):
+        if self._collides(cover, push):
             return None
         return cover
+
+    def _blockers(self, px, py, th):
+        cover = self._pose_cover(px, py, th)
+        grid = self.world.grid
+        W = self.world.width
+        H = self.world.height
+        bodies = {}
+        static = False
+        for (X, Y) in cover:
+            if X < 0 or X >= W or Y < 0 or Y >= H:
+                static = True
+                continue
+            t = grid[Y][X]
+            if t is None or t.body is self:
+                continue
+            if t.body is not None:
+                bodies.setdefault(t.body, []).append((X, Y))
+                continue
+            m = t.material
+            if m is not None and m.physics_type[0] in (0,):
+                static = True
+        return bodies, static
+
+    def _body_impulse(self, other, normal, cells):
+        nx, ny = normal
+        px = sum(c[0] + 0.5 for c in cells) / len(cells)
+        py = sum(c[1] + 0.5 for c in cells) / len(cells)
+        rax, ray = px - self.px, py - self.py
+        rbx, rby = px - other.px, py - other.py
+        va = (self.vx - self.omega * ray) * nx + (self.vy + self.omega * rax) * ny
+        vb = (other.vx - other.omega * rby) * nx + (other.vy + other.omega * rbx) * ny
+        rel = va - vb
+        if rel <= CONTACT_REST_SPEED:
+            return 0.0, 0.0
+        ra_n = rax * ny - ray * nx
+        rb_n = rbx * ny - rby * nx
+        denom = 1.0 / self.mass + 1.0 / other.mass + ra_n * ra_n / self.inertia + rb_n * rb_n / other.inertia
+        j = (1.0 + RESTITUTION) * rel / denom
+        self.vx -= j * nx / self.mass
+        self.vy -= j * ny / self.mass
+        self.omega -= j * ra_n / self.inertia
+        other.apply_impulse(j * nx, j * ny, px, py)
+        return rel, 1.0 / (1.0 / self.mass + 1.0 / other.mass)
 
     def _apply_cover(self, new_cover):
         world = self.world
@@ -177,27 +231,36 @@ class Body:
             world.set(X, Y, p)
         self.cover = new_cover
 
-        if displaced:
-            vacated = [c for c in old if c not in new_cover and grid[c[1]][c[0]] is None]
-            for X, Y, particle in displaced:
-                if vacated:
-                    j = min(range(len(vacated)),
-                            key=lambda k: (vacated[k][0] - X) ** 2 + (vacated[k][1] - Y) ** 2)
-                    nx, ny = vacated.pop(j)
-                    world.set(nx, ny, particle)
-                else:
-                    self._relocate(X, Y, particle)
+        displaced_cells = {(X, Y) for X, Y, _ in displaced}
+        for X, Y, particle in displaced:
+            self._relocate(X, Y, particle, new_cover, displaced_cells)
 
-    def _relocate(self, X, Y, particle):
+    def _relocate(self, X, Y, particle, new_cover, displaced_cells):
         world = self.world
         grid = world.grid
         W = world.width
         H = world.height
-        for dx, dy in _RELOCATE_OFFSETS:
-            nx, ny = X + dx, Y + dy
-            if 0 <= nx < W and 0 <= ny < H and grid[ny][nx] is None and (nx, ny) not in self.cover:
-                world.set(nx, ny, particle)
-                return
+        seen = {(X, Y)}
+        queue = deque([(X, Y)])
+        budget = RELOCATE_LIMIT
+        while queue and budget > 0:
+            cx, cy = queue.popleft()
+            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                if (nx, ny) in seen or nx < 0 or nx >= W or ny < 0 or ny >= H:
+                    continue
+                seen.add((nx, ny))
+                if (nx, ny) in new_cover:
+                    if (nx, ny) in displaced_cells:
+                        queue.append((nx, ny))
+                    continue
+                t = grid[ny][nx]
+                if t is None:
+                    world.set(nx, ny, particle)
+                    return
+                if t.body is None and t.material is not None and t.material.physics_type[0] in (1, 2, 3, 4) \
+                        and not (t.vx or t.vy):
+                    queue.append((nx, ny))
+                    budget -= 1
 
     def remove_particle(self, particle):
         key = None
@@ -377,7 +440,7 @@ class Body:
         npx = pivot_x + rx * c - ry * s
         npy = pivot_y + rx * s + ry * c
         nth = self.theta + dth
-        cover = self._try_pose(npx, npy, nth)
+        cover = self._try_pose(npx, npy, nth, True)
         if cover is None:
             return None
         self.px, self.py, self.theta = npx, npy, nth
@@ -467,10 +530,10 @@ class Body:
         self.vy += gdy * GRAVITY
         frac = self._buoyancy(gdx, gdy)
         if frac > 0.0:
-            drag = 1.0 - 0.12 * frac
+            drag = 1.0 - LIQUID_DRAG * frac
             self.vx *= drag
             self.vy *= drag
-            self.omega *= 1.0 - 0.2 * frac
+            self.omega *= 1.0 - LIQUID_SPIN_DRAG * frac
         if grabbed:
             self._grab_impulse()
             limit = MAX_OMEGA_GRAB
@@ -484,12 +547,16 @@ class Body:
             self.vy *= MAX_SPEED / speed
 
         impact_speed = 0.0
+        impact_mass = self.mass
         blocked = []
+        if self.impact_cooldown > 0:
+            self.impact_cooldown -= 1
         steps = max(1, int(math.ceil(max(abs(self.vx), abs(self.vy)) / SUBSTEP)))
         dx = self.vx / steps
         dy = self.vy / steps
         for _ in range(steps):
-            c = self._try_pose(self.px + dx, self.py + dy, self.theta)
+            push = (dx * gdx + dy * gdy) <= 1e-9
+            c = self._try_pose(self.px + dx, self.py + dy, self.theta, push)
             if c is not None:
                 self.px += dx
                 self.py += dy
@@ -497,26 +564,32 @@ class Body:
                 continue
             ok_x = ok_y = False
             if dx:
-                c = self._try_pose(self.px + dx, self.py, self.theta)
+                c = self._try_pose(self.px + dx, self.py, self.theta, dx * gdx <= 1e-9)
                 if c is not None:
                     self.px += dx
                     cover = c
                     ok_x = True
             if dy:
-                c = self._try_pose(self.px, self.py + dy, self.theta)
+                c = self._try_pose(self.px, self.py + dy, self.theta, dy * gdy <= 1e-9)
                 if c is not None:
                     self.py += dy
                     cover = c
                     ok_y = True
             if dx and not ok_x:
-                impact_speed = max(impact_speed, abs(self.vx))
-                blocked.append((1 if self.vx > 0 else -1, 0))
-                self.vx = 0.0
+                sign = 1 if dx > 0 else -1
+                speed, mass = self._block_axis(self.px + dx, self.py, (sign, 0), abs(self.vx))
+                impact_speed = max(impact_speed, speed)
+                if mass:
+                    impact_mass = mass
+                blocked.append((sign, 0))
                 dx = 0.0
             if dy and not ok_y:
-                impact_speed = max(impact_speed, abs(self.vy))
-                blocked.append((0, 1 if self.vy > 0 else -1))
-                self.vy = 0.0
+                sign = 1 if dy > 0 else -1
+                speed, mass = self._block_axis(self.px, self.py + dy, (0, sign), abs(self.vy))
+                impact_speed = max(impact_speed, speed)
+                if mass:
+                    impact_mass = mass
+                blocked.append((0, sign))
                 dy = 0.0
             if not ok_x and not ok_y:
                 break
@@ -526,12 +599,15 @@ class Body:
         rotated_done = False
         if contacts and not grabbed:
             rotated_done = True
-            self.vx *= 0.6
-            self.vy *= 0.6
-            if abs(self.vx) < 0.03:
+            slide = math.hypot(self.vx, self.vy)
+            decel = FRICTION * GRAVITY
+            if slide <= decel + 0.03:
                 self.vx = 0.0
-            if abs(self.vy) < 0.03:
                 self.vy = 0.0
+            else:
+                scale = (slide - decel) / slide
+                self.vx *= scale
+                self.vy *= scale
 
             def u_of(X, Y):
                 return gdy * (X + 0.5) - gdx * (Y + 0.5)
@@ -597,8 +673,8 @@ class Body:
                 self.vy = 0.0
                 self.omega = 0.0
 
-        if impact_speed > IMPACT_MIN_SPEED and blocked:
-            self._impact(blocked, impact_speed)
+        if impact_speed > IMPACT_MIN_SPEED and blocked and self.impact_cooldown <= 0:
+            self._impact(blocked, min(impact_speed, GRAB_DAMAGE_CAP) if grabbed else impact_speed, impact_mass)
 
         if stable and not moved and abs(self.vx) < 0.05 and abs(self.vy) < 0.05 and not grabbed:
             self.rest_ticks += 1
@@ -610,7 +686,26 @@ class Body:
         else:
             self.rest_ticks = 0
 
-    def _impact(self, axes, speed):
+    def _block_axis(self, px, py, normal, speed):
+        bodies, static = self._blockers(px, py, self.theta)
+        reduced = 0.0
+        effective = speed
+        pushed = False
+        for other, cells in bodies.items():
+            rel, mass = self._body_impulse(other, normal, cells)
+            if rel > 0.0:
+                pushed = True
+                if not static:
+                    effective = rel
+                    reduced = mass
+        if static or not pushed:
+            if normal[0]:
+                self.vx = 0.0
+            else:
+                self.vy = 0.0
+        return effective, reduced
+
+    def _impact(self, axes, speed, mass=None):
         world = self.world
         grid = world.grid
         W = world.width
@@ -630,7 +725,9 @@ class Body:
         if not pairs:
             return
         gdx, gdy = self._gravity()
-        damage.apply_impact(world, pairs, 0.5 * self.mass * speed * speed, (-gdx, -gdy))
+        effective = speed / MAX_SPEED * damage.REFERENCE_SPEED
+        damage.apply_impact(world, pairs, 0.5 * (mass or self.mass) * effective * effective, (-gdx, -gdy))
+        self.impact_cooldown = IMPACT_COOLDOWN
 
 
 def is_selectable(world, x, y):

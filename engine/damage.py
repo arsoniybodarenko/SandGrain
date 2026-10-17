@@ -2,10 +2,13 @@ import math
 import random
 
 from .particle import Particle
+from .settings import SETTINGS
 
-CRACK_FRACTION = 0.35
-BODY_BLAST = 0.6
-CUSHION = 0.1
+_D = SETTINGS.damage
+CRACK_FRACTION = _D.crack_fraction
+BODY_BLAST = _D.body_blast
+CUSHION = _D.cushion
+REFERENCE_SPEED = _D.reference_speed
 _DIRECTIONS = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, 1), (1, -1), (-1, -1))
 
 
@@ -52,7 +55,7 @@ def spread_cracks(world, x, y, energy, type_name, hardness):
 
     ratio = min(4.0, energy / hardness)
     dx, dy = random.choice(weighted)
-    length = random.randint(3, 5) + int(ratio)
+    length = random.randint(_D.crack_min_length, _D.crack_max_length) + int(ratio)
     cx, cy, e = x, y, energy
     for _ in range(length):
         cx += dx
@@ -64,7 +67,7 @@ def spread_cracks(world, x, y, energy, type_name, hardness):
         if q is not None and q.type == type_name and e >= hardness * CRACK_FRACTION:
             shatter_cell(world, cx, cy)
 
-    if random.random() < 0.25 + 0.1 * min(2.0, ratio):
+    if random.random() < _D.crack_branch_chance + 0.1 * min(2.0, ratio):
         mx, my = (-dx, dy) if dx != 0 else (dx, -dy)
         for _ in range(random.randint(3, 6)):
             cx += mx
@@ -95,8 +98,8 @@ def shockwave(world, x, y, radius, strength, up=(0, -1)):
                 continue
             dist = math.hypot(dx, dy)
             k = strength / dist
-            q.vx += dx / dist * k + up[0] * 0.6 + random.uniform(-0.4, 0.4)
-            q.vy += dy / dist * k + up[1] * 0.6 + random.uniform(-0.4, 0.4)
+            q.vx += dx / dist * k + up[0] * _D.shockwave_up_bias + random.uniform(-0.4, 0.4)
+            q.vy += dy / dist * k + up[1] * _D.shockwave_up_bias + random.uniform(-0.4, 0.4)
 
 
 def apply_impact(world, pairs, energy, up=(0, -1)):
@@ -106,6 +109,10 @@ def apply_impact(world, pairs, energy, up=(0, -1)):
     powder = None
     for bx, by, wx, wy in pairs:
         wp = world.get(wx, wy)
+        bp = world.get(bx, by)
+        if (wp is not None and wp.material is not None and wp.material.impact_immune) or \
+                (bp is not None and bp.material is not None and bp.material.impact_immune):
+            continue
         soft = wp is not None and wp.material is not None and wp.material.physics_type[0] == 1
         if soft and powder is None:
             powder = (wx, wy)
@@ -163,7 +170,7 @@ def explode(world, x, y, radius, power, fire=0.0, up=(0, -1)):
         mat = p.material
         if mat.shatter_to and random.random() < mat.shatter_chance:
             debris = Particle(mat.shatter_to, temperature=p.temperature)
-            speed = min(2.5, 0.35 * local)
+            speed = min(_D.rubble_speed_cap, _D.rubble_speed_factor * local)
             debris.vx = ux * speed + random.uniform(-0.3, 0.3)
             debris.vy = uy * speed + random.uniform(-0.3, 0.3)
             world.set(nx, ny, debris)

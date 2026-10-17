@@ -1,36 +1,19 @@
-from .constants import *
-from .font import draw_text
-from .particle import Particle
-from .draw import temperature_to_color
 import pygame
+
+from . import textures
+from .particle import Particle
+from .settings import *
+from .textures import temperature_to_color
 
 _CLEAR = (0, 0, 0, 0)
 
-CHUNK_SIZE = 16
-WAKE_MARGIN = 3
-AWAKE_TICKS = 3
-
-
-def draw_loading_screen(screen, progress):
-
-    screen.fill((0, 0, 0))
-
-    draw_text(
-        screen,
-        "Генерация текстур...",
-        screen.get_width() // 2 - 140,
-        screen.get_height() // 2 - 40
-    )
-
-    bar_width = 400
-    bar_height = 20
-    bar_x = (screen.get_width() - bar_width) // 2
-    bar_y = screen.get_height() // 2
-
-    pygame.draw.rect(screen, (80, 80, 80), (bar_x, bar_y, bar_width, bar_height))
-    pygame.draw.rect(screen, (200, 200, 255), (bar_x, bar_y, int(bar_width * progress), bar_height))
-
-    pygame.display.update()
+CHUNK_SIZE = SETTINGS.world.chunk_size
+WAKE_MARGIN = SETTINGS.world.wake_margin
+AWAKE_TICKS = SETTINGS.world.awake_ticks
+AMBIENT = SETTINGS.world.ambient_temperature
+THERMAL_THRESHOLD = SETTINGS.world.thermal_threshold
+THERMAL_TTL = SETTINGS.world.thermal_ttl
+THERMAL_INTERVAL = SETTINGS.world.thermal_interval
 
 
 class World:
@@ -49,6 +32,10 @@ class World:
         self.chunks_y = -(-height // CHUNK_SIZE)
         self.chunk_awake = [AWAKE_TICKS] * (self.chunks_x * self.chunks_y)
         self.wake_targets = [[self._wake_targets(x, y) for x in range(width)] for y in range(height)]
+        chunk_count = self.chunks_x * self.chunks_y
+        self.thermal_ttl = [0] * chunk_count
+        self.thermal_hot = [False] * chunk_count
+        self.thermal_targets = [[self._thermal_targets(x, y) for x in range(width)] for y in range(height)]
 
         self.init_borders()
 
@@ -113,6 +100,33 @@ class World:
             ys.append(cy + 1)
         return tuple(j * self.chunks_x + i for j in ys for i in xs)
 
+    def _thermal_targets(self, x, y):
+        cx, cy = x // CHUNK_SIZE, y // CHUNK_SIZE
+        lx, ly = x - cx * CHUNK_SIZE, y - cy * CHUNK_SIZE
+        xs = [cx]
+        if lx < 1 and cx > 0:
+            xs.append(cx - 1)
+        if lx >= CHUNK_SIZE - 1 and cx < self.chunks_x - 1:
+            xs.append(cx + 1)
+        ys = [cy]
+        if ly < 1 and cy > 0:
+            ys.append(cy - 1)
+        if ly >= CHUNK_SIZE - 1 and cy < self.chunks_y - 1:
+            ys.append(cy + 1)
+        return tuple(j * self.chunks_x + i for j in ys for i in xs)
+
+    def mark_thermal(self, x, y, particle):
+        if abs(particle.temperature - AMBIENT) > THERMAL_THRESHOLD:
+            ttl = self.thermal_ttl
+            for i in self.thermal_targets[y][x]:
+                ttl[i] = THERMAL_TTL
+            self.thermal_hot[self.thermal_targets[y][x][0]] = True
+        else:
+            hot = self.thermal_hot
+            for i in self.wake_targets[y][x]:
+                if hot[i]:
+                    self.thermal_ttl[i] = THERMAL_TTL
+
     def wake(self, x, y):
         if 0 <= x < self.width and 0 <= y < self.height:
             awake = self.chunk_awake
@@ -147,6 +161,11 @@ class World:
             awake[i] = AWAKE_TICKS
         for i in self.wake_targets[ny][nx]:
             awake[i] = AWAKE_TICKS
+        moved = self.grid[ny][nx]
+        if moved is not None:
+            self.mark_thermal(nx, ny, moved)
+        if target is not None:
+            self.mark_thermal(x, y, target)
 
     def set(self, x, y, particle):
         if self.in_bounds(x, y) and not self.is_border(x, y):
@@ -155,6 +174,8 @@ class World:
             awake = self.chunk_awake
             for i in self.wake_targets[y][x]:
                 awake[i] = AWAKE_TICKS
+            if particle is not None:
+                self.mark_thermal(x, y, particle)
 
     def swap(self, x1, y1, x2, y2):
         if not (self.in_bounds(x1, y1) and self.in_bounds(x2, y2)):
@@ -173,70 +194,15 @@ class World:
             awake[i] = AWAKE_TICKS
         for i in self.wake_targets[y2][x2]:
             awake[i] = AWAKE_TICKS
+        for cx_, cy_ in ((x1, y1), (x2, y2)):
+            q = self.grid[cy_][cx_]
+            if q is not None:
+                self.mark_thermal(cx_, cy_, q)
 
         return True
 
-    def precompute_textures(self, screen):
-        from .draw import evaluate_texture_color, frame_same_cache, tile_cache, LazyTextureMap
-        from .materials import all_materials
-
-        count = len(all_materials)
-        for index, material in enumerate(all_materials):
-            frame_same_cache.clear()
-            tile_cache.clear()
-            material.texture_map = {}
-
-            if isinstance(material.texture, tuple) and material.texture[0] and material.texture[0][0]:
-                texture, palette = material.texture
-                height = len(texture)
-                width = max(len(line) for line in texture)
-                additional_colors = {}
-                for key, expr in palette.items():
-                    if expr.startswith("additional("):
-                        inner = expr[11:-1].strip("() ")
-                        try:
-                            r, g, b = map(int, inner.split(","))
-                            additional_colors[key] = (r, g, b)
-                        except ValueError:
-                            additional_colors[key] = material.color
-
-                base_color = material.color
-                opacity = int(material.opacity * 255)
-                exprs = list(palette.values())
-                order_dependent = any("same(" in e or "for_tile(" in e for e in exprs)
-                deterministic = not any(("random" in e or "randint" in e) for e in exprs)
-                char_memo = {}
-
-                def make(x, y, texture=texture, palette=palette, base_color=base_color,
-                         opacity=opacity, width=width, height=height,
-                         additional_colors=additional_colors, deterministic=deterministic,
-                         char_memo=char_memo):
-                    char = texture[y % len(texture)][x % len(texture[0])]
-                    if deterministic:
-                        cached = char_memo.get(char)
-                        if cached is not None:
-                            return cached
-                    tile_key = (x // width if width > 0 else 0, y // height if height > 0 else 0)
-                    color_rgb = evaluate_texture_color(
-                        char, palette, base_color, x, y, width, height,
-                        additional_colors, tile_key
-                    )
-                    value = (*color_rgb, opacity)
-                    if deterministic:
-                        char_memo[char] = value
-                    return value
-
-                if order_dependent:
-                    texture_map = {}
-                    for y in range(self.height):
-                        for x in range(self.width):
-                            texture_map[(x, y)] = make(x, y)
-                    material.texture_map = texture_map
-                else:
-                    material.texture_map = LazyTextureMap(lambda key, make=make: make(key[0], key[1]))
-
-            if screen is not None:
-                draw_loading_screen(screen, (index + 1) / count)
+    def precompute_textures(self, progress=None):
+        textures.precompute_textures(self.width, self.height, progress)
 
     def init_borders(self):
         for y in range(self.height):
